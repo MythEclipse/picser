@@ -1,0 +1,40 @@
+{
+  "name": "picser",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@octokit/rest": "^22.0.1",
+    "@types/react-syntax-highlighter": "^15.5.13",
+    "@upstash/redis": "^1.36.1",
+    "lucide-react": "^0.563.0",
+    "multer": "^2.0.2",
+    "next": "16.1.4",
+    "next-pwa": "^5.6.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-syntax-highlighter": "^16.1.0",
+    "sharp": "^0.34.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/multer": "^2.0.0",
+    "@types/next-pwa": "^5.6.9",
+    "@types/node": "^25",
+    "@types/react": "19.2.9",
+    "@types/react-dom": "19.2.3",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.4",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  },
+  "overrides": {
+    "@types/react": "19.2.9",
+    "@types/react-dom": "19.2.3"
+  }
+}

@@ -1,0 +1,28 @@
+services:
+  picser:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: picser:latest
+    container_name: picser-app
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      # GitHub config (Required)
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_OWNER=${GITHUB_OWNER}
+      - GITHUB_REPO=${GITHUB_REPO}
+      - GITHUB_BRANCH=${GITHUB_BRANCH:-main}
+      # Redis Config (Optional - Use if you want queue support)
+      # If using the internal redis below, use: http://redis:6379 (Need REST proxy or use direct connection if rewritten)
+      # Since we use @upstash/redis which is HTTP based, standard Redis needs a REST proxy.
+      # For simplicity, this template assumes you use external Upstash or direct upload mode.
+      - UPSTASH_REDIS_REST_URL=${UPSTASH_REDIS_REST_URL}
+      - UPSTASH_REDIS_REST_TOKEN=${UPSTASH_REDIS_REST_TOKEN}
+    # env_file:
+    #   - .env
+
+  # Optional: Redis for local queue (Requires Upstash HTTP Proxy or similar if sticking to @upstash/redis)
+  # For now, we recommend using external Upstash for the queue feature or sticking to direct upload.
