@@ -1,14 +1,15 @@
 # Base stage for deps
-FROM oven/bun:1 AS base
+FROM node:20-alpine AS base
+WORKDIR /app
+
+# Enable Corepack to manage pnpm
+RUN corepack enable
 
 # Install dependencies only when needed
 FROM base AS deps
 WORKDIR /app
-
-# Install dependencies based on the preferred package manager
-COPY package.json package-lock.json* bun.lockb* ./
-# Install dependencies (frozen-lockfile if bun.lockb exists, otherwise regular install)
-RUN bun install --frozen-lockfile || bun install
+COPY package.json pnpm-lock.yaml* ./
+RUN pnpm install --frozen-lockfile || pnpm install
 
 # Rebuild the source code only when needed
 FROM base AS builder
@@ -19,23 +20,23 @@ COPY . .
 # Next.js compiles telemetry data collection by default.
 ENV NEXT_TELEMETRY_DISABLED 1
 
-RUN bun run build
+RUN pnpm run build
 
 # Production image, copy all the files and run next
-FROM oven/bun:1-alpine AS runner
+FROM node:20-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV production
 ENV NEXT_TELEMETRY_DISABLED 1
 
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+RUN addgroup -S -g 1001 nodejs || true
+RUN adduser -S -u 1001 nextjs || true
 
 COPY --from=builder /app/public ./public
 
 # Set the correct permission for prerender cache
 RUN mkdir .next
-RUN chown nextjs:nodejs .next
+RUN chown nextjs:nodejs .next || true
 
 # Automatically leverage output traces to reduce image size
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
@@ -48,5 +49,4 @@ EXPOSE 3000
 ENV PORT 3000
 ENV HOSTNAME "0.0.0.0"
 
-# Bun can run node-compatible standalone output
-CMD ["bun", "server.js"]
+CMD ["node", "server.js"]

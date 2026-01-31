@@ -84,19 +84,17 @@
 1. **Clone and Install**
 
 ```bash
-npm install
+pnpm install
 ```
 
 Then, run the development server:
 
 ```bash
+pnpm dev
+# or
 npm run dev
 # or
 yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
@@ -271,19 +269,19 @@ curl -X POST \
 This application is optimized for Cloudflare Pages with Edge Runtime:
 
 1. Connect your GitHub repository to Cloudflare Pages
-2. Set build command: `npm run build`
+2. Set build command: `pnpm run build`
 3. Set output directory: `.next`
 4. Add environment variables in Cloudflare Pages settings
 5. Deploy automatically on git push
 
 ### Vercel
 
-Deploy easily on Vercel — note on installing dev dependencies and Bun:
+Deploy easily on Vercel — note on installing dev dependencies:
 
 1. Connect your GitHub repository
 2. In Project Settings → General → Build & Development Settings:
-   - **Install Command**: `bun install`
-   - **Build Command**: `bun run build`
+   - **Install Command**: `pnpm install`
+   - **Build Command**: `pnpm run build`
 3. If your build earlier failed due to missing type packages (e.g., `@types/minimatch`), perform a **Redeploy > Clear cache** to ensure the new `package.json` is used.
 4. Add environment variables
 5. Deploy
