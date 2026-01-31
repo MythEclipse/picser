@@ -5,7 +5,7 @@ import { Octokit } from "@octokit/rest";
 export const runtime = "edge";
 
 /**
- * Direct upload to GitHub (fallback when Redis not available)
+ * Direct upload to GitHub (used when queueing is disabled)
  */
 async function directUpload(
   filename: string,
@@ -22,7 +22,7 @@ async function directUpload(
 
   let retries = 0;
   const maxRetries = 3;
-  let response;
+  let response: any;
 
   while (retries <= maxRetries) {
     try {
@@ -46,33 +46,25 @@ async function directUpload(
     }
   }
 
-  if (!response) {
-    throw new Error("Failed to upload after retries");
-  }
+  if (!response) throw new Error("Failed to upload after retries");
 
-  const commitSha = response.data.commit.sha;
+const commitSha = response?.data?.content?.sha ?? response?.data?.commit?.sha;
 
   return {
     success: true,
-    url: `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filename}`,
+    filename,
     urls: {
       github: `https://github.com/${owner}/${repo}/blob/${branch}/${filename}`,
       raw: `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filename}`,
       jsdelivr: `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${branch}/${filename}`,
-      github_commit: `https://github.com/${owner}/${repo}/blob/${commitSha}/${filename}`,
-      raw_commit: `https://raw.githubusercontent.com/${owner}/${repo}/${commitSha}/${filename}`,
-      jsdelivr_commit: `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${commitSha}/${filename}`,
     },
-    filename,
     commit_sha: commitSha,
-    github_url: response.data.content?.html_url,
-    mode: "direct",
   };
 }
 
 export async function POST(request: NextRequest) {
-  // Check environment (Disable queue on Vercel due to background trigger limitations)
-  const isServerless = process.env.VERCEL === "1";
+  // Auto-detect serverless/edge environment
+  const isServerless = (await import("@/lib/environment")).isServerlessEnvironment();
 
   try {
     const formData = await request.formData();
@@ -104,13 +96,12 @@ export async function POST(request: NextRequest) {
     const base64Content = buffer.toString("base64");
 
     // Generate unique filename
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const timestamp = new Date().toISOString().replaceAll(":", "-").replaceAll(".", "-");
     const extension = file.name.split(".").pop() || "jpg";
-    const filename = `uploads/${timestamp}-${Math.random().toString(36).substr(2, 9)}.${extension}`;
+    const filename = `uploads/${timestamp}-${Math.random().toString(36).slice(2, 11)}.${extension}`;
 
-    // Check if Redis queue is enabled AND NOT in serverless mode
+    // If Redis is available and not serverless, queue for batch processing
     if (redisQueue.isEnabled() && !isServerless) {
-      // Use Redis queue for batch processing
       await redisQueue.add({
         filename,
         base64Content,
@@ -124,7 +115,6 @@ export async function POST(request: NextRequest) {
 
       // Trigger queue processor safely
       try {
-        // Use absolute URL based on the request origin to avoid Edge fetch issues
         const baseUrl = new URL(request.url).origin;
         const processorUrl = `${baseUrl}/api/process-queue`;
 
@@ -134,10 +124,7 @@ export async function POST(request: NextRequest) {
           headers: {
             "Content-Type": "application/json",
           },
-        }).catch(() => {
-          // Silent fail. In serverless, background fetch often fails.
-          // We rely on Client-Side Smart Polling or Cron.
-        });
+        }).catch(() => {});
       } catch (e) {
         // Ignore
       }
@@ -157,30 +144,30 @@ export async function POST(request: NextRequest) {
         success: true,
         message: "File queued for batch upload",
         filename,
-        url: predictedUrls.raw, // For backward compatibility
-        urls: predictedUrls, // Start using predicted URLs immediately
+        url: predictedUrls.raw,
+        urls: predictedUrls,
         size: file.size,
         type: file.type,
         queueSize,
         mode: "queued",
         note: "File will be uploaded in batch (up to 100 files or after 5 seconds)",
       });
-    } else {
-      // Fallback to direct upload
-      console.log(
-        `Using direct upload (Redis: ${redisQueue.isEnabled()}, Serverless: ${isServerless})`,
-      );
-      const result = await directUpload(filename, base64Content, file.name);
-
-      return NextResponse.json({
-        ...result,
-        size: file.size,
-        type: file.type,
-        note: isServerless
-          ? "Uploaded directly (Queue disabled on Serverless)"
-          : "Uploaded directly (Redis queue not configured)",
-      });
     }
+
+    // If Redis is not available (or we're in serverless), queue mode is disabled.
+    // Perform direct upload immediately (one commit per upload).
+    console.log(`Direct upload mode (Redis: ${redisQueue.isEnabled()}, Serverless: ${isServerless})`);
+    const result = await directUpload(filename, base64Content, file.name);
+
+    return NextResponse.json({
+      ...result,
+      size: file.size,
+      type: file.type,
+      mode: "direct",
+      note: isServerless
+        ? "Uploaded directly (Queue disabled on Serverless)"
+        : "Uploaded directly (Redis queue not configured)",
+    });
   } catch (error) {
     console.error("Upload error:", error);
 

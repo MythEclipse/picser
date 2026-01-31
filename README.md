@@ -112,6 +112,25 @@ GITHUB_REPO=your_repository_name
 GITHUB_BRANCH=main
 ```
 
+### Queueing & Auto-submit
+
+Picser supports Redis-backed batching for uploads when running on a long-lived server environment. Queueing is autodetected (heuristic) and will be disabled automatically in serverless/edge runtimes (Vercel, Cloudflare Workers, Deno, etc.), in which case uploads are committed directly per request.
+
+- Enable Redis-backed queueing by setting:
+
+```env
+UPSTASH_REDIS_REST_URL=https://<your-upstash-url>
+UPSTASH_REDIS_REST_TOKEN=<your-upstash-token>
+```
+
+- Optional: AUTO_SUBMIT_THRESHOLD — number of queued items that triggers immediate batch processing (default: `20`). Set in your `.env.local` if you want to override:
+
+```env
+AUTO_SUBMIT_THRESHOLD=20
+```
+
+Serverless detection uses runtime heuristics (feature detection + common provider env vars), not just the presence of a single env var.
+
 ## GitHub Token Setup
 
 1. Go to [GitHub Settings > Developer settings > Personal access tokens](https://github.com/settings/tokens)

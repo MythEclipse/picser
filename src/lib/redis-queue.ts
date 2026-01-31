@@ -1,32 +1,27 @@
 import { Redis } from "@upstash/redis";
 
-// Check if Redis is configured
-const isRedisConfigured = () => {
-  return !!(
-    process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
-  );
-};
-
-// Initialize Redis client only if configured
+// Autodetect Redis config
 let redis: Redis | null = null;
-if (isRedisConfigured()) {
-  try {
+try {
+  if (typeof process !== "undefined" && process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
     redis = new Redis({
       url: process.env.UPSTASH_REDIS_REST_URL!,
       token: process.env.UPSTASH_REDIS_REST_TOKEN!,
     });
     console.log("Redis queue enabled");
-  } catch (error) {
-    console.warn("Failed to initialize Redis, queue disabled:", error);
-    redis = null;
+  } else {
+    console.log("Redis not configured, queue disabled");
   }
-} else {
-  console.log("Redis not configured, queue disabled");
+} catch (error) {
+  console.warn("Failed to initialize Redis, queue disabled:", error);
+  redis = null;
 }
 
 const QUEUE_KEY = "upload-queue";
 const LOCK_KEY = "upload-queue-lock";
 const LOCK_TIMEOUT = 30000; // 30 seconds
+import { getAutoSubmitThreshold } from "@/lib/config";
+const AUTO_SUBMIT_THRESHOLD = getAutoSubmitThreshold(); // auto-submit when queue reaches this
 
 export interface QueueItem {
   filename: string;
@@ -58,6 +53,18 @@ export class RedisUploadQueue {
     await redis.lpush(QUEUE_KEY, JSON.stringify(item));
     const queueSize = await redis.llen(QUEUE_KEY);
     console.log(`Added to queue. Queue size: ${queueSize}`);
+
+    // Trigger processing automatically when threshold reached
+    if (typeof queueSize === "number" && queueSize >= AUTO_SUBMIT_THRESHOLD) {
+      try {
+        // fire-and-forget POST to process-queue
+        globalThis.fetch("/api/process-queue", { method: "POST" }).catch((e) =>
+          console.warn("Auto-submit request failed:", e),
+        );
+      } catch (e) {
+        console.warn("Auto-submit trigger error:", e);
+      }
+    }
   }
 
   /**

@@ -1,29 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
 import { redisQueue } from "@/lib/redis-queue";
+import { uploadQueue } from "@/lib/upload-queue";
 import { Octokit } from "@octokit/rest";
 
 export const runtime = "edge";
 export const maxDuration = 60; // 60 seconds max
 
 const MAX_BATCH_SIZE = 100;
+import { getAutoSubmitThreshold } from "@/lib/config";
+const AUTO_SUBMIT_THRESHOLD = getAutoSubmitThreshold(); // auto-submit when queue reaches this
 const BATCH_TIMEOUT = 5000; // 5 seconds
 
 export async function POST(request: NextRequest) {
   try {
-    // Check environment (Disable queue on Vercel)
-    const isServerless = process.env.VERCEL === "1";
+    // Autodetect queue: use Redis if enabled, else fallback to in-memory
+    const useRedis = redisQueue.isEnabled();
+    let queueSize = 0;
+    let oldestTimestamp = null;
+    let isOldEnough = false;
+    let isFull = false;
+    let shouldProcess = false;
 
-    // Check if we should process the queue
-    const shouldProcess = await redisQueue.shouldProcess();
-
-    if (isServerless) {
+    // Auto-detect serverless/edge; if running serverless or no Redis, disable queueing
+    const isServerless = (await import("@/lib/environment")).isServerlessEnvironment();
+    if (!useRedis || isServerless) {
       return NextResponse.json({
-        message: "Queue disabled in Serverless mode",
+        message: "Queueing disabled (no Redis or serverless environment)",
         processed: false,
-        disabled: true, // Signal to client to stop polling
+        disabled: true,
         queueSize: 0,
       });
     }
+
+    // Use Redis to check readiness
+    shouldProcess = await redisQueue.shouldProcess();
+    queueSize = await redisQueue.size();
+    oldestTimestamp = await redisQueue.getOldestTimestamp();
+    isOldEnough = typeof oldestTimestamp === "number" && Date.now() - oldestTimestamp >= BATCH_TIMEOUT;
+    isFull = queueSize >= AUTO_SUBMIT_THRESHOLD;
 
     if (!shouldProcess) {
       return NextResponse.json({
@@ -31,14 +45,6 @@ export async function POST(request: NextRequest) {
         processed: false,
       });
     }
-
-    // Check if queue is old enough (5 seconds) or full
-    const queueSize = await redisQueue.size();
-    const oldestTimestamp = await redisQueue.getOldestTimestamp();
-
-    const isOldEnough =
-      oldestTimestamp && Date.now() - oldestTimestamp >= BATCH_TIMEOUT;
-    const isFull = queueSize >= MAX_BATCH_SIZE;
 
     if (!isOldEnough && !isFull) {
       return NextResponse.json({
@@ -49,7 +55,23 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Try to acquire lock
+    // If using in-memory queue, process it directly
+    if (!useRedis) {
+      const processedCount = await uploadQueue.processNow();
+      if (processedCount === 0) {
+        return NextResponse.json({
+          message: "Queue is empty",
+          processed: false,
+        });
+      }
+      return NextResponse.json({
+        message: "Processed in-memory queue",
+        processed: true,
+        processedCount,
+      });
+    }
+
+    // Try to acquire lock for Redis-based processing
     const lockAcquired = await redisQueue.acquireLock();
     if (!lockAcquired) {
       return NextResponse.json({

@@ -2,26 +2,64 @@
 // Collects up to 100 files and uploads them in a single commit after 5 seconds
 
 interface QueueItem {
-  file: File;
+  file: { name: string; size: number; type: string; lastModified?: number };
   base64Content: string;
   filename: string;
   resolve: (value: any) => void;
   reject: (error: any) => void;
+  timestamp?: number;
 }
 
 class UploadQueue {
   private queue: QueueItem[] = [];
+    // Public method to get queue size
+    public getSize(): number {
+      return this.queue.length;
+    }
+
+    // Public method to get oldest timestamp
+    public getOldestTimestamp(): number | null {
+      if (this.queue.length === 0) return null;
+      // Use file.lastModified if available, else fallback to timestamp or Date.now()
+      const item = this.queue[0];
+      if (item.file && typeof item.file.lastModified === "number") {
+        return item.file.lastModified;
+      }
+      if (typeof item.timestamp === "number") return item.timestamp;
+      return Date.now();
+    }
+
+    // Public method to manually trigger processing now
+    public async processNow(): Promise<number> {
+      return await this.processBatch();
+    }
   private timer: any = null;
   private processing = false;
   private processingLock = false;
   private readonly MAX_BATCH_SIZE = 100;
+  // auto-submit threshold is configurable via env AUTO_SUBMIT_THRESHOLD (default 20)
+  private readonly AUTO_SUBMIT_THRESHOLD = ((): number => {
+    try {
+      const { getAutoSubmitThreshold } = require("@/lib/config");
+      return getAutoSubmitThreshold();
+    } catch (e) {
+      return 20;
+    }
+  })();
   private readonly BATCH_TIMEOUT = 5000; // 5 seconds
 
   async add(item: QueueItem): Promise<any> {
     return new Promise((resolve, reject) => {
-      this.queue.push({ ...item, resolve, reject });
+      this.queue.push({ ...item, resolve, reject, timestamp: Date.now() });
 
       console.log(`Queue size: ${this.queue.length}`);
+
+      // Auto-submit when threshold reached
+      if (this.queue.length >= this.AUTO_SUBMIT_THRESHOLD) {
+        console.log(`Auto-submit threshold reached (${this.AUTO_SUBMIT_THRESHOLD}), processing batch`);
+        // Start processing immediately
+        this.processBatch();
+      }
 
       // Start timer on first item
       if (this.queue.length === 1 && !this.timer && !this.processing) {
@@ -47,16 +85,16 @@ class UploadQueue {
     }, this.BATCH_TIMEOUT);
   }
 
-  private async processBatch() {
+  private async processBatch(): Promise<number> {
     // Prevent concurrent batch processing
     if (this.processingLock) {
       console.log("Another batch is processing, skipping");
-      return;
+      return 0;
     }
 
     if (this.queue.length === 0) {
       console.log("Queue is empty, nothing to process");
-      return;
+      return 0;
     }
 
     // Acquire lock
@@ -70,6 +108,7 @@ class UploadQueue {
     }
 
     const batch = this.queue.splice(0, this.MAX_BATCH_SIZE);
+    const processedCount = batch.length;
     console.log(`Processing batch of ${batch.length} files in single commit`);
 
     try {
@@ -128,6 +167,8 @@ class UploadQueue {
         this.startTimer();
       }
     }
+
+    return processedCount;
   }
 
   private async uploadBatch(batch: QueueItem[]): Promise<any[]> {
