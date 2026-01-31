@@ -278,12 +278,17 @@ This application is optimized for Cloudflare Pages with Edge Runtime:
 
 ### Vercel
 
-Deploy easily on Vercel:
+Deploy easily on Vercel — note on installing dev dependencies and Bun:
 
 1. Connect your GitHub repository
-2. Add environment variables  
-3. Deploy with zero configuration
+2. In Project Settings → General → Build & Development Settings:
+   - **Install Command**: `bun install`
+   - **Build Command**: `bun run build`
+3. If your build earlier failed due to missing type packages (e.g., `@types/minimatch`), perform a **Redeploy > Clear cache** to ensure the new `package.json` is used.
+4. Add environment variables
+5. Deploy
 
+If you prefer Vercel to run `npm`/`pnpm`, set Install Command accordingly, just ensure devDependencies are installed during build (e.g., `npm ci --include=dev`).
 ## Tech Stack
 
 - **Framework**: Next.js 15 with App Router
