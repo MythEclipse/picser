@@ -58,9 +58,33 @@ export class RedisUploadQueue {
     if (typeof queueSize === "number" && queueSize >= AUTO_SUBMIT_THRESHOLD) {
       try {
         // fire-and-forget POST to process-queue
-        globalThis.fetch("/api/process-queue", { method: "POST" }).catch((e) =>
-          console.warn("Auto-submit request failed:", e),
-        );
+        // Use absolute URL in browser; on the server we need an absolute URL
+        if (typeof window !== "undefined" && typeof window.location !== "undefined" && window.location.origin) {
+          // Use absolute URL in browser to avoid any ambiguity
+          const origin = window.location.origin;
+          globalThis
+            .fetch(`${origin}/api/process-queue`, { method: "POST" })
+            .catch((e) => console.warn("Auto-submit request failed:", e));
+        } else {
+          // Determine base URL from environment; prefer explicit public base URL
+          const baseUrl =
+            process.env.NEXT_PUBLIC_BASE_URL ||
+            (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined) ||
+            (process.env.BASE_URL || undefined);
+
+          if (baseUrl) {
+            globalThis
+              .fetch(`${baseUrl}/api/process-queue`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+              })
+              .catch((e) => console.warn("Auto-submit request failed:", e));
+          } else {
+            console.warn(
+              "Auto-submit skipped: no base URL configured (set NEXT_PUBLIC_BASE_URL or VERCEL_URL)",
+            );
+          }
+        }
       } catch (e) {
         console.warn("Auto-submit trigger error:", e);
       }
