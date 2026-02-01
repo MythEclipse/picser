@@ -39,7 +39,10 @@ export async function POST(request: NextRequest) {
     isOldEnough = typeof oldestTimestamp === "number" && Date.now() - oldestTimestamp >= BATCH_TIMEOUT;
     isFull = queueSize >= AUTO_SUBMIT_THRESHOLD;
 
+    console.log(`[process-queue] Queue status - size: ${queueSize}, shouldProcess: ${shouldProcess}, isOldEnough: ${isOldEnough}, isFull: ${isFull}, AUTO_SUBMIT_THRESHOLD: ${AUTO_SUBMIT_THRESHOLD}`);
+
     if (!shouldProcess) {
+      console.log("[process-queue] Cannot process: queue is being processed or empty");
       return NextResponse.json({
         message: "Queue is being processed or empty",
         processed: false,
@@ -47,6 +50,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!isOldEnough && !isFull) {
+      console.log(`[process-queue] Queue not ready - waiting for timeout or size. Age: ${oldestTimestamp ? Date.now() - oldestTimestamp : 0}ms (threshold: ${BATCH_TIMEOUT}ms), Size: ${queueSize} (threshold: ${AUTO_SUBMIT_THRESHOLD})`);
       return NextResponse.json({
         message: "Queue not ready yet",
         queueSize,
@@ -81,8 +85,9 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      // Get items from queue
-      const items = await redisQueue.getItems(MAX_BATCH_SIZE);
+      // Get items from queue (100MB limit for batch)
+      const items = await redisQueue.getItems(MAX_BATCH_SIZE, 100 * 1024 * 1024);
+      console.log(`[process-queue] Retrieved ${items.length} items from queue`);
       if (items.length === 0) {
         await redisQueue.releaseLock();
         return NextResponse.json({
@@ -90,6 +95,10 @@ export async function POST(request: NextRequest) {
           processed: false,
         });
       }
+
+      // Calculate total size
+      const totalSize = items.reduce((sum, item) => sum + item.size, 0);
+      console.log(`[process-queue] Total batch size: ${(totalSize / 1024 / 1024).toFixed(2)}MB`);
 
       console.log(`Processing batch of ${items.length} files`);
 
@@ -168,6 +177,7 @@ export async function POST(request: NextRequest) {
 
       // Remove processed items from queue
       await redisQueue.removeItems(items.length);
+      console.log(`[process-queue] Removed ${items.length} items from queue`);
 
       console.log(`Successfully uploaded batch of ${items.length} files`);
 
@@ -183,7 +193,11 @@ export async function POST(request: NextRequest) {
       await redisQueue.releaseLock();
     }
   } catch (error) {
-    console.error("Queue processor error:", error);
+    console.error("[process-queue] Queue processor error:", error);
+    if (error instanceof Error) {
+      console.error("[process-queue] Error message:", error.message);
+      console.error("[process-queue] Error stack:", error.stack);
+    }
 
     // Release lock on error
     try {

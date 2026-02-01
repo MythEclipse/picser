@@ -102,6 +102,7 @@ export async function POST(request: NextRequest) {
 
     // If Redis is available and not serverless, queue for batch processing
     if (redisQueue.isEnabled() && !isServerless) {
+      const origin = new URL(request.url).origin;
       await redisQueue.add({
         filename,
         base64Content,
@@ -109,6 +110,7 @@ export async function POST(request: NextRequest) {
         size: file.size,
         type: file.type,
         timestamp: Date.now(),
+        origin,
       });
 
       const queueSize = await redisQueue.size();

@@ -30,6 +30,7 @@ export interface QueueItem {
   size: number;
   type: string;
   timestamp: number;
+  origin?: string;
 }
 
 export class RedisUploadQueue {
@@ -58,32 +59,20 @@ export class RedisUploadQueue {
     if (typeof queueSize === "number" && queueSize >= AUTO_SUBMIT_THRESHOLD) {
       try {
         // fire-and-forget POST to process-queue
-        // Use absolute URL in browser; on the server we need an absolute URL
-        if (typeof window !== "undefined" && typeof window.location !== "undefined" && window.location.origin) {
-          // Use absolute URL in browser to avoid any ambiguity
-          const origin = window.location.origin;
+        // Use origin from item (dynamic from request) or fallback to window.location in browser
+        const origin = item.origin || (typeof window !== "undefined" && window.location?.origin);
+        
+        if (origin) {
           globalThis
-            .fetch(`${origin}/api/process-queue`, { method: "POST" })
+            .fetch(`${origin}/api/process-queue`, { 
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+            })
             .catch((e) => console.warn("Auto-submit request failed:", e));
         } else {
-          // Determine base URL from environment; prefer explicit public base URL
-          const baseUrl =
-            process.env.NEXT_PUBLIC_BASE_URL ||
-            (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined) ||
-            (process.env.BASE_URL || undefined);
-
-          if (baseUrl) {
-            globalThis
-              .fetch(`${baseUrl}/api/process-queue`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-              })
-              .catch((e) => console.warn("Auto-submit request failed:", e));
-          } else {
-            console.warn(
-              "Auto-submit skipped: no base URL configured (set NEXT_PUBLIC_BASE_URL or VERCEL_URL)",
-            );
-          }
+          console.warn(
+            "Auto-submit skipped: no origin available (pass origin in queue item)",
+          );
         }
       } catch (e) {
         console.warn("Auto-submit trigger error:", e);
