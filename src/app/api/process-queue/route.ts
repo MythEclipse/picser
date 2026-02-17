@@ -6,7 +6,7 @@ import {
   BATCH_TIMEOUT,
 } from "@/lib/queue-processor";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 export const maxDuration = 60; // 60 seconds max
 
 export async function POST(request: NextRequest) {

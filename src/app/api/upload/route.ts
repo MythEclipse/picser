@@ -3,7 +3,7 @@ import { redisQueue } from "@/lib/redis-queue";
 import { Octokit } from "@octokit/rest";
 import { processQueue } from "@/lib/queue-processor";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 
 /**
  * Direct upload to GitHub (used when queueing is disabled)
