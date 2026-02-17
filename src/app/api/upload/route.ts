@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { redisQueue } from "@/lib/redis-queue";
 import { Octokit } from "@octokit/rest";
+import { processQueue } from "@/lib/queue-processor";
 
 export const runtime = "edge";
 
@@ -48,7 +49,7 @@ async function directUpload(
 
   if (!response) throw new Error("Failed to upload after retries");
 
-const commitSha = response?.data?.content?.sha ?? response?.data?.commit?.sha;
+  const commitSha = response?.data?.content?.sha ?? response?.data?.commit?.sha;
 
   return {
     success: true,
@@ -64,7 +65,9 @@ const commitSha = response?.data?.content?.sha ?? response?.data?.commit?.sha;
 
 export async function POST(request: NextRequest) {
   // Auto-detect serverless/edge environment
-  const isServerless = (await import("@/lib/environment")).isServerlessEnvironment();
+  const isServerless = (
+    await import("@/lib/environment")
+  ).isServerlessEnvironment();
 
   try {
     const formData = await request.formData();
@@ -96,7 +99,10 @@ export async function POST(request: NextRequest) {
     const base64Content = buffer.toString("base64");
 
     // Generate unique filename
-    const timestamp = new Date().toISOString().replaceAll(":", "-").replaceAll(".", "-");
+    const timestamp = new Date()
+      .toISOString()
+      .replaceAll(":", "-")
+      .replaceAll(".", "-");
     const extension = file.name.split(".").pop() || "jpg";
     const filename = `uploads/${timestamp}-${Math.random().toString(36).slice(2, 11)}.${extension}`;
 
@@ -121,12 +127,9 @@ export async function POST(request: NextRequest) {
         const processorUrl = `${baseUrl}/api/process-queue`;
 
         // Fire and forget
-        fetch(processorUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-        }).catch(() => {});
+        processQueue().catch((err) => {
+          console.error("Background queue processing failed:", err);
+        });
       } catch (e) {
         // Ignore
       }
@@ -158,7 +161,9 @@ export async function POST(request: NextRequest) {
 
     // If Redis is not available (or we're in serverless), queue mode is disabled.
     // Perform direct upload immediately (one commit per upload).
-    console.log(`Direct upload mode (Redis: ${redisQueue.isEnabled()}, Serverless: ${isServerless})`);
+    console.log(
+      `Direct upload mode (Redis: ${redisQueue.isEnabled()}, Serverless: ${isServerless})`,
+    );
     const result = await directUpload(filename, base64Content, file.name);
 
     return NextResponse.json({
