@@ -12,6 +12,8 @@
     "@octokit/rest": "^22.0.1",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@upstash/redis": "^1.36.1",
+    "crypto": "^1.0.1",
+    "ioredis": "^5.9.3",
     "lucide-react": "^0.563.0",
     "multer": "^2.0.2",
     "next": "16.1.4",

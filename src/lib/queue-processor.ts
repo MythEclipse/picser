@@ -1,9 +1,8 @@
 import { redisQueue } from "@/lib/redis-queue";
-import { uploadQueue } from "@/lib/upload-queue";
 import { Octokit } from "@octokit/rest";
 import { getAutoSubmitThreshold } from "@/lib/config";
 
-export const MAX_BATCH_SIZE = 100;
+export const MAX_BATCH_SIZE = 20;
 export const BATCH_TIMEOUT = 5000; // 5 seconds
 
 export interface QueueProcessResult {
@@ -74,19 +73,10 @@ export async function processQueue(): Promise<QueueProcessResult> {
       };
     }
 
-    // If using in-memory queue, process it directly
     if (!useRedis) {
-      const processedCount = await uploadQueue.processNow();
-      if (processedCount === 0) {
-        return {
-          message: "Queue is empty",
-          processed: false,
-        };
-      }
       return {
-        message: "Processed in-memory queue",
-        processed: true,
-        processedCount,
+        message: "Queue not available (useRedis is false)",
+        processed: false,
       };
     }
 

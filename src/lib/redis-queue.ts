@@ -1,13 +1,10 @@
-import { Redis } from "@upstash/redis";
+import { Redis } from "ioredis";
 
 // Autodetect Redis config
 let redis: Redis | null = null;
 try {
-  if (typeof process !== "undefined" && process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
-    redis = new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL!,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-    });
+  if (typeof process !== "undefined" && process.env.REDIS_URL) {
+    redis = new Redis(process.env.REDIS_URL);
     console.log("Redis queue enabled");
   } else {
     console.log("Redis not configured, queue disabled");
@@ -57,26 +54,9 @@ export class RedisUploadQueue {
 
     // Trigger processing automatically when threshold reached
     if (typeof queueSize === "number" && queueSize >= AUTO_SUBMIT_THRESHOLD) {
-      try {
-        // fire-and-forget POST to process-queue
-        // Use origin from item (dynamic from request) or fallback to window.location in browser
-        const origin = item.origin || (typeof window !== "undefined" && window.location?.origin);
-        
-        if (origin) {
-          globalThis
-            .fetch(`${origin}/api/process-queue`, { 
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-            })
-            .catch((e) => console.warn("Auto-submit request failed:", e));
-        } else {
-          console.warn(
-            "Auto-submit skipped: no origin available (pass origin in queue item)",
-          );
-        }
-      } catch (e) {
-        console.warn("Auto-submit trigger error:", e);
-      }
+      console.log(
+        `Auto-submit threshold reached (${AUTO_SUBMIT_THRESHOLD}), waiting for next instrumentation tick`,
+      );
     }
   }
 
@@ -175,10 +155,13 @@ export class RedisUploadQueue {
   async acquireLock(): Promise<boolean> {
     if (!this.enabled || !redis) return false;
     const lockValue = Date.now().toString();
-    const result = await redis.set(LOCK_KEY, lockValue, {
-      nx: true, // Only set if not exists
-      px: LOCK_TIMEOUT, // Expire after 30 seconds
-    });
+    const result = await redis.set(
+      LOCK_KEY,
+      lockValue,
+      "PX",
+      LOCK_TIMEOUT,
+      "NX",
+    );
     return result === "OK";
   }
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { redisQueue } from "@/lib/redis-queue";
+import crypto from "crypto";
 import { Octokit } from "@octokit/rest";
 import { processQueue } from "@/lib/queue-processor";
 
@@ -98,13 +99,12 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(bytes);
     const base64Content = buffer.toString("base64");
 
-    // Generate unique filename
-    const timestamp = new Date()
-      .toISOString()
-      .replaceAll(":", "-")
-      .replaceAll(".", "-");
+    // Generate unique filename based on SHA-256 hash
+    const hashSum = crypto.createHash("sha256");
+    hashSum.update(buffer);
+    const hash = hashSum.digest("hex").slice(0, 16); // Use first 16 chars for shortness
     const extension = file.name.split(".").pop() || "jpg";
-    const filename = `uploads/${timestamp}-${Math.random().toString(36).slice(2, 11)}.${extension}`;
+    const filename = `uploads/${hash}.${extension}`;
 
     // If Redis is available and not serverless, queue for batch processing
     if (redisQueue.isEnabled() && !isServerless) {
@@ -121,18 +121,8 @@ export async function POST(request: NextRequest) {
 
       const queueSize = await redisQueue.size();
 
-      // Trigger queue processor safely
-      try {
-        const baseUrl = new URL(request.url).origin;
-        const processorUrl = `${baseUrl}/api/process-queue`;
-
-        // Fire and forget
-        processQueue().catch((err) => {
-          console.error("Background queue processing failed:", err);
-        });
-      } catch (e) {
-        // Ignore
-      }
+      // Queue processing is handled iteratively by instrumentation.ts background worker.
+      console.log(`[Upload API] File ${filename} queued successfully.`);
 
       // Generate predicted URLs (optimistic)
       const owner = process.env.GITHUB_OWNER!;
