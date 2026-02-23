@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Octokit } from "@octokit/rest";
+import { validateImage } from "@/lib/image-validation";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
   try {
@@ -54,6 +55,17 @@ export async function POST(request: NextRequest) {
     // Convert file to base64
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
+
+    // Audit / Validate the image buffer to ensure it is not corrupted
+    try {
+      await validateImage(buffer);
+    } catch (error: any) {
+      return NextResponse.json(
+        { error: "Image validation failed: File is corrupted or invalid" },
+        { status: 400 },
+      );
+    }
+
     const base64Content = buffer.toString("base64");
 
     // Generate unique filename
