@@ -86,53 +86,57 @@ export class RedisUploadQueue {
     }
   }
 
-  /**
-   * Get items from queue respecting limits
-   * Fetches in small chunks to avoid max request size errors
-   */
   async getItems(
     maxItems: number = 100,
     maxBytes: number = 10 * 1024 * 1024,
   ): Promise<QueueItem[]> {
     if (!this.enabled || !redis) return [];
 
+    const queueSize = await redis.llen(QUEUE_KEY);
+    if (queueSize === 0) return [];
+
     // Fetch in small chunks to avoid request size limits
     const CHUNK_SIZE = 5;
     const items: QueueItem[] = [];
     let currentBytes = 0;
 
-    // We'll peek at items chunk by chunk
-    for (let i = 0; i < maxItems; i += CHUNK_SIZE) {
-      // Stop if we've reached byte limit
+    // We need to read from the RIGHT (oldest items) because add() uses lpush and remove() uses rpop.
+    // Index -1 is the oldest, -2 is second oldest, etc.
+    // Wait, let's read from `queueSize - 1` downwards.
+    let rightIndex = queueSize - 1;
+
+    while (items.length < maxItems && rightIndex >= 0) {
       if (currentBytes >= maxBytes) break;
 
-      const rangeEnd = Math.min(i + CHUNK_SIZE, maxItems) - 1;
-      const chunk = await redis.lrange(QUEUE_KEY, i, rangeEnd);
+      const leftIndex = Math.max(0, rightIndex - CHUNK_SIZE + 1);
+      // lrange is inclusive: lrange(0, 4) gets 5 items.
+      const chunk = await redis.lrange(QUEUE_KEY, leftIndex, rightIndex);
 
       if (chunk.length === 0) break;
 
-      for (const rawItem of chunk) {
+      // chunk is returned from left to right (newer to older).
+      // To process oldest first, we should iterate it in reverse.
+      for (let i = chunk.length - 1; i >= 0; i--) {
+        const rawItem = chunk[i];
         const item = this.safeParse(rawItem);
         if (item) {
-          // Check if adding this item would exceed limits
-          // Estimate size: raw JSON string length
           const itemSize =
             typeof rawItem === "string"
               ? rawItem.length
               : JSON.stringify(item).length;
 
           if (currentBytes + itemSize > maxBytes && items.length > 0) {
-            // Stop adding, we're full
             return items;
           }
 
           items.push(item);
           currentBytes += itemSize;
+
+          if (items.length >= maxItems) break;
         }
       }
 
-      // If chunk was smaller than requested, we reached end of queue
-      if (chunk.length < CHUNK_SIZE) break;
+      rightIndex = leftIndex - 1;
     }
 
     return items;
