@@ -24,7 +24,7 @@ async function directUpload(
   const branch = process.env.GITHUB_BRANCH || "main";
 
   let retries = 0;
-  const maxRetries = 3;
+  const maxRetries = 10;
   let response: any;
 
   while (retries <= maxRetries) {
@@ -41,8 +41,10 @@ async function directUpload(
     } catch (error: any) {
       if (error.status === 409 && retries < maxRetries) {
         retries++;
-        const waitTime = Math.pow(2, retries) * 100;
-        await new Promise((resolve) => setTimeout(resolve, waitTime));
+        // Exponential backoff with significant jitter to avoid thundering herd on Github API
+        const baseWait = Math.pow(2, retries) * 150;
+        const jitter = Math.random() * 500;
+        await new Promise((resolve) => setTimeout(resolve, baseWait + jitter));
         continue;
       }
       throw error;
@@ -240,7 +242,7 @@ export async function DELETE(request: NextRequest) {
     if (filename.includes("/")) {
       filename = filename.split("/").pop();
       if (!filename.startsWith("uploads/")) {
-         filename = `uploads/${filename}`;
+        filename = `uploads/${filename}`;
       }
     }
 
@@ -263,7 +265,10 @@ export async function DELETE(request: NextRequest) {
       });
 
       if (Array.isArray(fileData)) {
-          return NextResponse.json({ error: "Path is a directory, not a file" }, { status: 400 });
+        return NextResponse.json(
+          { error: "Path is a directory, not a file" },
+          { status: 400 },
+        );
       }
 
       sha = fileData.sha;
