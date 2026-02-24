@@ -47,14 +47,18 @@ export async function processQueue(): Promise<QueueProcessResult> {
       Date.now() - oldestTimestamp >= BATCH_TIMEOUT;
     const isFull = queueSize >= AUTO_SUBMIT_THRESHOLD;
 
-    console.log(
-      `[process-queue] Queue status - size: ${queueSize}, shouldProcess: ${shouldProcess}, isOldEnough: ${isOldEnough}, isFull: ${isFull}, AUTO_SUBMIT_THRESHOLD: ${AUTO_SUBMIT_THRESHOLD}`,
-    );
+    if (queueSize > 0) {
+      console.log(
+        `[process-queue] Queue status - size: ${queueSize}, shouldProcess: ${shouldProcess}, isOldEnough: ${isOldEnough}, isFull: ${isFull}, AUTO_SUBMIT_THRESHOLD: ${AUTO_SUBMIT_THRESHOLD}`,
+      );
+    }
 
     if (!shouldProcess) {
-      console.log(
-        "[process-queue] Cannot process: queue is being processed or empty",
-      );
+      if (queueSize > 0) {
+        console.log(
+          "[process-queue] Cannot process: queue is being processed or empty",
+        );
+      }
       return {
         message: "Queue is being processed or empty",
         processed: false,
