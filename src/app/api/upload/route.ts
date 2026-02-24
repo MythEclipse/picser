@@ -199,7 +199,7 @@ export async function GET() {
 
   return NextResponse.json({
     message: "Image upload API endpoint",
-    methods: ["POST"],
+    methods: ["POST", "DELETE"],
     maxFileSize: "100MB",
     allowedTypes: ["image/*"],
     redis: {
@@ -221,4 +221,87 @@ export async function GET() {
           description: "Direct upload with retry logic (Redis not configured)",
         },
   });
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const data = await request.json();
+    const filenameOrUrl = data.filename || data.url;
+
+    if (!filenameOrUrl) {
+      return NextResponse.json(
+        { error: "No filename or url provided" },
+        { status: 400 },
+      );
+    }
+
+    // Extract filename if a URL was provided
+    let filename = filenameOrUrl;
+    if (filename.includes("/")) {
+      filename = filename.split("/").pop();
+      if (!filename.startsWith("uploads/")) {
+         filename = `uploads/${filename}`;
+      }
+    }
+
+    const octokit = new Octokit({
+      auth: process.env.GITHUB_TOKEN,
+    });
+
+    const owner = process.env.GITHUB_OWNER!;
+    const repo = process.env.GITHUB_REPO!;
+    const branch = process.env.GITHUB_BRANCH || "main";
+
+    // 1. Get the file's current SHA (Required by GitHub API for deletion)
+    let sha: string;
+    try {
+      const { data: fileData } = await octokit.repos.getContent({
+        owner,
+        repo,
+        path: filename,
+        ref: branch,
+      });
+
+      if (Array.isArray(fileData)) {
+          return NextResponse.json({ error: "Path is a directory, not a file" }, { status: 400 });
+      }
+
+      sha = fileData.sha;
+    } catch (error: any) {
+      if (error.status === 404) {
+        return NextResponse.json(
+          { error: "File not found in repository", success: true }, // Treat as success if already gone
+          { status: 200 },
+        );
+      }
+      throw error;
+    }
+
+    // 2. Delete the file using the SHA
+    await octokit.repos.deleteFile({
+      owner,
+      repo,
+      path: filename,
+      message: `Delete corrupted/audited image: ${filename}`,
+      sha,
+      branch,
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: `File ${filename} successfully deleted from GitHub`,
+    });
+  } catch (error) {
+    console.error("Delete error:", error);
+    if (error instanceof Error) {
+      return NextResponse.json(
+        { error: `Delete failed: ${error.message}` },
+        { status: 500 },
+      );
+    }
+    return NextResponse.json(
+      { error: "Delete failed: Unknown error" },
+      { status: 500 },
+    );
+  }
 }
