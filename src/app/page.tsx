@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { BookOpen, Github, Star, Zap, Shield, Globe } from 'lucide-react';
+import { BookOpen, GitFork, Star, Zap, Shield, Globe } from 'lucide-react';
 import ImageUploader from '@/components/ImageUploader';
 import UploadHistory from '@/components/UploadHistory';
 
@@ -67,7 +67,7 @@ export default function Home() {
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <div className="relative">
-                <Github className="h-8 w-8 text-blue-600" />
+                <GitFork className="h-8 w-8 text-blue-600" />
                 <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full"></div>
               </div>
               <div>
@@ -149,7 +149,7 @@ export default function Home() {
             {/* Left Side - Brand */}
             <div className="flex items-center space-x-3">
               <div className="relative">
-                <Github className="h-6 w-6 text-blue-600" />
+                <GitFork className="h-6 w-6 text-blue-600" />
                 <div className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full"></div>
               </div>
               <div>

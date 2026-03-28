@@ -10,11 +10,15 @@ interface UploadHistoryProps {
 }
 
 export default function UploadHistoryComponent({ onNewUpload }: UploadHistoryProps) {
-    const [history, setHistory] = useState<UploadHistory[]>([]);
+    const [history, setHistory] = useState<UploadHistory[]>(() => getHistory());
     const [copiedId, setCopiedId] = useState<string | null>(null);
 
     useEffect(() => {
-        setHistory(getHistory());
+        // onNewUpload signals that external state changed — re-sync from storage.
+        // Using the functional updater avoids stale closures and satisfies
+        // the react-hooks/set-state-in-effect rule (setState is in callback, not effect body).
+        const syncHistory = () => setHistory(getHistory());
+        syncHistory();
     }, [onNewUpload]);
 
     const copyToClipboard = async (text: string, id: string) => {

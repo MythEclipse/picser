@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { redisQueue } from "@/lib/redis-queue";
 import crypto from "crypto";
 import { Octokit } from "@octokit/rest";
-import { processQueue } from "@/lib/queue-processor";
 import { validateImage } from "@/lib/image-validation";
 
 export const runtime = "nodejs";
@@ -25,7 +24,8 @@ async function directUpload(
 
   let retries = 0;
   const maxRetries = 10;
-  let response: any;
+  type OctokitResponse = Awaited<ReturnType<typeof octokit.repos.createOrUpdateFileContents>>;
+  let response: OctokitResponse | undefined;
 
   while (retries <= maxRetries) {
     try {
@@ -38,8 +38,9 @@ async function directUpload(
         branch,
       });
       break;
-    } catch (error: any) {
-      if (error.status === 409 && retries < maxRetries) {
+    } catch (error: unknown) {
+      const octokitError = error as { status?: number };
+      if (octokitError.status === 409 && retries < maxRetries) {
         retries++;
         // Exponential backoff with significant jitter to avoid thundering herd on Github API
         const baseWait = Math.pow(2, retries) * 150;
@@ -104,7 +105,7 @@ export async function POST(request: NextRequest) {
     // Audit / Validate the image buffer to ensure it is not corrupted
     try {
       await validateImage(buffer);
-    } catch (error: any) {
+    } catch {
       return NextResponse.json(
         { error: "Image validation failed: File is corrupted or invalid" },
         { status: 400 },
@@ -272,8 +273,9 @@ export async function DELETE(request: NextRequest) {
       }
 
       sha = fileData.sha;
-    } catch (error: any) {
-      if (error.status === 404) {
+    } catch (error: unknown) {
+      const octokitError = error as { status?: number };
+      if (octokitError.status === 404) {
         return NextResponse.json(
           { error: "File not found in repository", success: true }, // Treat as success if already gone
           { status: 200 },

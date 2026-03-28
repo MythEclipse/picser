@@ -15,6 +15,7 @@ export interface QueueProcessResult {
   commitSha?: string;
   error?: string;
   disabled?: boolean;
+  success?: boolean;
 }
 
 export async function processQueue(): Promise<QueueProcessResult> {
@@ -201,7 +202,7 @@ export async function processQueue(): Promise<QueueProcessResult> {
         batchSize: items.length,
         commitSha: newCommit.sha,
         message: `Uploaded ${items.length} files in single commit`,
-      } as any; // Cast for now as success field isn't in interface but useful
+      };
     } finally {
       // Always release lock
       await redisQueue.releaseLock();
@@ -216,8 +217,8 @@ export async function processQueue(): Promise<QueueProcessResult> {
     // Release lock on error
     try {
       await redisQueue.releaseLock();
-    } catch (e) {
-      // Ignore lock release errors
+    } catch {
+      // Ignore lock release errors — nothing actionable here
     }
 
     if (error instanceof Error) {

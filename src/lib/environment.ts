@@ -3,14 +3,22 @@
  * Uses feature detection first (Edge/Workers/Deno) and falls back to well-known
  * provider environment variables as a secondary signal.
  */
+interface GlobalWithRuntimeProbes {
+  Deno?: unknown;
+  fetch?: typeof globalThis.fetch;
+  process?: typeof process;
+}
+
 export function isServerlessEnvironment(): boolean {
   try {
+    const g = globalThis as unknown as GlobalWithRuntimeProbes;
+
     // Deno runtime → treated as serverless-style (detect via globalThis)
-    if ((globalThis as any).Deno !== undefined) return true;
+    if (g.Deno !== undefined) return true;
 
     // Edge workers and Cloudflare Workers typically have `fetch` on globalThis
     // but do not expose Node's `process` object.
-    if ((globalThis as any).fetch !== undefined && (globalThis as any).process === undefined) {
+    if (g.fetch !== undefined && g.process === undefined) {
       return true;
     }
 
@@ -33,7 +41,6 @@ export function isServerlessEnvironment(): boolean {
     // Fail safe → assume not serverless
     // Log at debug level so we have visibility when troubleshooting
     // but don't throw since detection is heuristic.
-    // eslint-disable-next-line no-console
     console.debug("isServerlessEnvironment detection error:", e);
   }
 

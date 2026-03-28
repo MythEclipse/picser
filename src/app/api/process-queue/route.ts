@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { redisQueue } from "@/lib/redis-queue";
 import {
   processQueue,
@@ -9,7 +9,7 @@ import {
 export const runtime = "nodejs";
 export const maxDuration = 60; // 60 seconds max
 
-export async function POST(request: NextRequest) {
+export async function POST() {
   const result = await processQueue();
 
   if (result.error) {
@@ -31,7 +31,7 @@ export async function GET() {
       maxBatchSize: MAX_BATCH_SIZE,
       batchTimeout: BATCH_TIMEOUT,
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: "Failed to get queue status" },
       { status: 500 },

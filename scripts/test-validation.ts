@@ -1,5 +1,3 @@
-import fs from "fs";
-
 async function testUpload(filename: string, isCorrupted: boolean) {
   const formData = new FormData();
 

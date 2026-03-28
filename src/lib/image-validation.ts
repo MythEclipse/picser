@@ -19,8 +19,9 @@ export async function validateImage(buffer: Buffer): Promise<sharp.Metadata> {
     await image.stats();
 
     return metadata;
-  } catch (error: any) {
-    console.warn(`[ImageValidator] Rejected input buffer: ${error.message}`);
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.warn(`[ImageValidator] Rejected input buffer: ${msg}`);
     throw new Error("Invalid or corrupted image file");
   }
 }

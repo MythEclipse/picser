@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
     // Audit / Validate the image buffer to ensure it is not corrupted
     try {
       await validateImage(buffer);
-    } catch (error: any) {
+    } catch {
       return NextResponse.json(
         { error: "Image validation failed: File is corrupted or invalid" },
         { status: 400 },
@@ -90,8 +90,9 @@ export async function POST(request: NextRequest) {
           branch: githubBranch,
         });
         break; // Success, exit retry loop
-      } catch (error: any) {
-        if (error.status === 409 && retries < maxRetries) {
+      } catch (error: unknown) {
+        const octokitError = error as { status?: number };
+        if (octokitError.status === 409 && retries < maxRetries) {
           // Conflict error, wait and retry
           retries++;
           const waitTime = Math.pow(2, retries) * 100; // Exponential backoff

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Copy, CheckCircle, Upload, Code, Github, Home, Zap, Shield, Globe, AlertCircle } from 'lucide-react';
+import { Copy, CheckCircle, Upload, Code, GitFork, Home, Zap, Shield, Globe, AlertCircle } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
@@ -344,7 +344,7 @@ print(result)
                                 rel="noopener noreferrer"
                                 className="flex items-center space-x-2 text-slate-600 hover:text-slate-900 transition-colors"
                             >
-                                <Github className="h-5 w-5" />
+                                <GitFork className="h-5 w-5" />
                                 <span>GitHub</span>
                             </a>
                         </div>
@@ -1054,7 +1054,7 @@ print(result)
                                 rel="noopener noreferrer"
                                 className="inline-flex items-center px-6 py-3 bg-slate-600 text-white rounded-xl hover:bg-slate-700 transition-colors font-medium"
                             >
-                                <Github className="h-4 w-4 mr-2" />
+                                <GitFork className="h-4 w-4 mr-2" />
                                 View on GitHub
                             </a>
                         </div>
@@ -1068,7 +1068,7 @@ print(result)
                         {/* Left Side - Brand */}
                         <div className="flex items-center space-x-3">
                             <div className="relative">
-                                <Github className="h-6 w-6 text-blue-600" />
+                                <GitFork className="h-6 w-6 text-blue-600" />
                                 <div className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full"></div>
                             </div>
                             <div>
