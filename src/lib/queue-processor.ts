@@ -20,220 +20,107 @@ export interface QueueProcessResult {
 }
 
 export async function processQueue(): Promise<QueueProcessResult> {
+  const isServerless = isServerlessEnvironment();
+  const useRedis = redisQueue.isEnabled();
+
+  if (!useRedis || isServerless) {
+    return {
+      message: "Queueing disabled (no Redis or serverless environment)",
+      processed: false,
+      disabled: true,
+      success: false
+    };
+  }
+
+  let lockToken: string | null = null;
+
   try {
-    // Autodetect queue: use Redis if enabled, else fallback to in-memory
-    const useRedis = redisQueue.isEnabled();
-
-    // Auto-detect serverless/edge; if running serverless or no Redis, disable queueing
-    const isServerless = isServerlessEnvironment();
-
-    if (!useRedis || isServerless) {
-      return {
-        message: "Queueing disabled (no Redis or serverless environment)",
-        processed: false,
-        disabled: true,
-        queueSize: 0,
-      };
-    }
-
     const AUTO_SUBMIT_THRESHOLD = getAutoSubmitThreshold();
-
-    // Use Redis to check readiness
     const shouldProcess = await redisQueue.shouldProcess();
     const queueSize = await redisQueue.size();
-    const oldestTimestamp = await redisQueue.getOldestTimestamp();
-    const isOldEnough =
-      typeof oldestTimestamp === "number" &&
-      Date.now() - oldestTimestamp >= BATCH_TIMEOUT;
-    const isFull = queueSize >= AUTO_SUBMIT_THRESHOLD;
-
-    if (queueSize > 0) {
-      console.log(
-        `[process-queue] Queue status - size: ${queueSize}, shouldProcess: ${shouldProcess}, isOldEnough: ${isOldEnough}, isFull: ${isFull}, AUTO_SUBMIT_THRESHOLD: ${AUTO_SUBMIT_THRESHOLD}`,
-      );
+    
+    if (queueSize === 0) {
+      return { message: "Queue is empty", processed: false, queueSize: 0, success: true };
     }
 
+    const oldestTimestamp = await redisQueue.getOldestTimestamp();
+    const isOldEnough = typeof oldestTimestamp === "number" && (Date.now() - oldestTimestamp >= BATCH_TIMEOUT);
+    const isFull = queueSize >= AUTO_SUBMIT_THRESHOLD;
+
     if (!shouldProcess) {
-      if (queueSize > 0) {
-        console.log(
-          "[process-queue] Cannot process: queue is being processed or empty",
-        );
-      }
-      return {
-        message: "Queue is being processed or empty",
-        processed: false,
-      };
+      return { message: "Queue is being processed by another instance", processed: false, success: true };
     }
 
     if (!isOldEnough && !isFull) {
-      console.log(
-        `[process-queue] Queue not ready - waiting for timeout or size. Age: ${oldestTimestamp ? Date.now() - oldestTimestamp : 0}ms (threshold: ${BATCH_TIMEOUT}ms), Size: ${queueSize} (threshold: ${AUTO_SUBMIT_THRESHOLD})`,
-      );
       return {
-        message: "Queue not ready yet",
+        message: "Queue not ready (batch timeout or size not met)",
+        processed: false,
         queueSize,
-        waitingTime: oldestTimestamp ? Date.now() - oldestTimestamp : 0,
-        processed: false,
+        success: true
       };
     }
 
-    if (!useRedis) {
-      return {
-        message: "Queue not available (useRedis is false)",
-        processed: false,
-      };
+    // Attempt to acquire distributed lock
+    lockToken = await redisQueue.acquireLock();
+    if (!lockToken) {
+      return { message: "Lock acquisition failed (concurrent processing)", processed: false, success: true };
     }
 
-    // Try to acquire lock for Redis-based processing
-    const lockAcquired = await redisQueue.acquireLock();
-    if (!lockAcquired) {
-      return {
-        message: "Another process is handling the queue",
-        processed: false,
-      };
+    // CRITICAL SECTION START
+    const items = await redisQueue.getItems(MAX_BATCH_SIZE, 100 * 1024 * 1024);
+    if (items.length === 0) {
+      return { message: "Queue is empty after lock", processed: false, success: true };
     }
 
-    try {
-      // Get items from queue (100MB limit for batch)
-      const items = await redisQueue.getItems(
-        MAX_BATCH_SIZE,
-        100 * 1024 * 1024,
-      );
-      console.log(`[process-queue] Retrieved ${items.length} items from queue`);
-      if (items.length === 0) {
-        await redisQueue.releaseLock();
-        return {
-          message: "Queue is empty",
-          processed: false,
-        };
-      }
+    console.log(`[process-queue] Processing batch of ${items.length} files (Distributed Instance: ${Math.random().toString(36).substring(7)})`);
 
-      // Calculate total size
-      const totalSize = items.reduce((sum, item) => sum + item.size, 0);
-      console.log(
-        `[process-queue] Total batch size: ${(totalSize / 1024 / 1024).toFixed(2)}MB`,
-      );
+    const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+    const owner = process.env.GITHUB_OWNER!;
+    const repo = process.env.GITHUB_REPO!;
+    const branch = process.env.GITHUB_BRANCH || "main";
 
-      console.log(`Processing batch of ${items.length} files`);
-
-      // Upload batch to GitHub
-      const octokit = new Octokit({
-        auth: process.env.GITHUB_TOKEN,
-      });
-
-      const owner = process.env.GITHUB_OWNER!;
-      const repo = process.env.GITHUB_REPO!;
-      const branch = process.env.GITHUB_BRANCH || "main";
-
-      // Get current commit
-      const { data: refData } = await octokit.git.getRef({
-        owner,
-        repo,
-        ref: `heads/${branch}`,
-      });
-      const currentCommitSha = refData.object.sha;
-
-      const { data: currentCommit } = await octokit.git.getCommit({
-        owner,
-        repo,
-        commit_sha: currentCommitSha,
-      });
-      const currentTreeSha = currentCommit.tree.sha;
-
-      // Create blobs sequentially to avoid GitHub secondary rate limit (403 Abuse Detection)
-      // https://docs.github.com/en/rest/guides/best-practices-for-using-the-rest-api
-      const blobs: Array<{ path: string; mode: "100644"; type: "blob"; sha: string }> = [];
-      
-      for (const item of items) {
-        const { data: blob } = await octokit.git.createBlob({
-          owner,
-          repo,
-          content: item.base64Content,
-          encoding: "base64",
-        });
-        
-        blobs.push({
-          path: item.filename,
-          mode: "100644",
-          type: "blob",
-          sha: blob.sha,
-        });
-      }
-
-      // Create tree
-      const { data: newTree } = await octokit.git.createTree({
-        owner,
-        repo,
-        base_tree: currentTreeSha,
-        tree: blobs,
-      });
-
-      // Create commit
-      const fileNames = items.map((item) => item.originalName).join(", ");
-      const commitMessage =
-        items.length === 1
-          ? `Upload image: ${fileNames}`
-          : `Batch upload ${items.length} images: ${fileNames.substring(0, 100)}${fileNames.length > 100 ? "..." : ""}`;
-
-      const { data: newCommit } = await octokit.git.createCommit({
-        owner,
-        repo,
-        message: commitMessage,
-        tree: newTree.sha,
-        parents: [currentCommitSha],
-      });
-
-      // Update reference
-      await octokit.git.updateRef({
-        owner,
-        repo,
-        ref: `heads/${branch}`,
-        sha: newCommit.sha,
-      });
-
-      // Remove processed items from queue
-      await redisQueue.removeItems(items.length);
-      console.log(`[process-queue] Removed ${items.length} items from queue`);
-
-      console.log(`Successfully uploaded batch of ${items.length} files`);
-
-      return {
-        success: true,
-        processed: true,
-        batchSize: items.length,
-        commitSha: newCommit.sha,
-        message: `Uploaded ${items.length} files in single commit`,
-      };
-    } finally {
-      // Always release lock
-      await redisQueue.releaseLock();
-    }
-  } catch (error) {
-    console.error("[process-queue] Queue processor error:", error);
-    if (error instanceof Error) {
-      console.error("[process-queue] Error message:", error.message);
-      console.error("[process-queue] Error stack:", error.stack);
+    const { data: refData } = await octokit.git.getRef({ owner, repo, ref: `heads/${branch}` });
+    const currentCommitSha = refData.object.sha;
+    const { data: currentCommit } = await octokit.git.getCommit({ owner, repo, commit_sha: currentCommitSha });
+    
+    // Serialized blob creation for Rate-Limit avoidance
+    const blobs: Array<{ path: string; mode: "100644"; type: "blob"; sha: string }> = [];
+    for (const item of items) {
+      const { data: blob } = await octokit.git.createBlob({ owner, repo, content: item.base64Content, encoding: "base64" });
+      blobs.push({ path: item.filename, mode: "100644", type: "blob", sha: blob.sha });
     }
 
-    // Release lock on error
-    try {
-      await redisQueue.releaseLock();
-    } catch {
-      // Ignore lock release errors — nothing actionable here
-    }
+    const { data: newTree } = await octokit.git.createTree({ owner, repo, base_tree: currentCommit.tree.sha, tree: blobs });
+    const commitMessage = items.length === 1 
+      ? `Upload: ${items[0].originalName}` 
+      : `Batch upload ${items.length} images`;
 
-    if (error instanceof Error) {
-      return {
-        error: `Queue processing failed: ${error.message}`,
-        processed: false,
-        message: error.message,
-      };
-    }
+    const { data: newCommit } = await octokit.git.createCommit({
+      owner, repo, message: commitMessage, tree: newTree.sha, parents: [currentCommitSha]
+    });
+
+    await octokit.git.updateRef({ owner, repo, ref: `heads/${branch}`, sha: newCommit.sha });
+    await redisQueue.removeItems(items.length);
 
     return {
-      error: "Queue processing failed: Unknown error",
-      processed: false,
-      message: "Unknown error",
+      success: true,
+      processed: true,
+      batchSize: items.length,
+      commitSha: newCommit.sha,
+      message: `Successfully batch uploaded ${items.length} files`
     };
+
+  } catch (error) {
+    console.error("[process-queue] Distributed worker error:", error);
+    return {
+      success: false,
+      processed: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+      message: "Internal worker exception"
+    };
+  } finally {
+    if (lockToken) {
+      await redisQueue.releaseLock(lockToken);
+    }
   }
 }

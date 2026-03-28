@@ -1,4 +1,5 @@
 import { Redis } from "ioredis";
+// Using globalThis.crypto for cross-runtime (Edge/Node) compatibility
 
 // Autodetect Redis config
 let redis: Redis | null = null;
@@ -165,26 +166,38 @@ export class RedisUploadQueue {
 
   /**
    * Try to acquire lock for processing
+   * @returns A unique lock token if successful, null otherwise
    */
-  async acquireLock(): Promise<boolean> {
-    if (!this.enabled || !redis) return false;
-    const lockValue = Date.now().toString();
+  async acquireLock(): Promise<string | null> {
+    if (!this.enabled || !redis) return null;
+    const lockToken = globalThis.crypto.randomUUID();
     const result = await redis.set(
       LOCK_KEY,
-      lockValue,
+      lockToken,
       "PX",
       LOCK_TIMEOUT,
       "NX",
     );
-    return result === "OK";
+    return result === "OK" ? lockToken : null;
   }
 
   /**
-   * Release lock
+   * Release lock safely using an atomic Lua script (Redlock pattern)
+   * It only deletes the lock if the actual stored token matches the provided token
+   * @param token The lock token returned by acquireLock
    */
-  async releaseLock(): Promise<void> {
-    if (!this.enabled || !redis) return;
-    await redis.del(LOCK_KEY);
+  async releaseLock(token: string | null): Promise<void> {
+    if (!this.enabled || !redis || !token) return;
+    
+    const script = `
+      if redis.call("get", KEYS[1]) == ARGV[1] then
+        return redis.call("del", KEYS[1])
+      else
+        return 0
+      end
+    `;
+    
+    await redis.eval(script, 1, LOCK_KEY, token);
   }
 
   /**
