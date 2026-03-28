@@ -1,22 +1,19 @@
 import sharp from "sharp";
 
 /**
- * Validates an image buffer to ensure it is a valid image and not corrupted.
- * It uses sharp to fully decode the image pixels (via stats computation).
+ * Validates an image buffer to ensure it is a valid image format.
+ * It uses sharp to parse the image headers and metadata.
  *
  * @param buffer - The original image file buffer
  * @returns A Promise resolving to the image metadata
- * @throws Error if the image is invalid or corrupted
+ * @throws Error if the image format is invalid or corrupted metadata
  */
 export async function validateImage(buffer: Buffer): Promise<sharp.Metadata> {
   try {
     const image = sharp(buffer);
 
-    // Read metadata (this validates the header)
+    // Read metadata (this strictly validates the header and magic bytes)
     const metadata = await image.metadata();
-
-    // Compute statistics (this fully decodes the pixel data, catching deeper corruption)
-    await image.stats();
 
     return metadata;
   } catch (error: unknown) {

@@ -140,23 +140,25 @@ export async function processQueue(): Promise<QueueProcessResult> {
       });
       const currentTreeSha = currentCommit.tree.sha;
 
-      // Create blobs
-      const blobs = await Promise.all(
-        items.map(async (item) => {
-          const { data: blob } = await octokit.git.createBlob({
-            owner,
-            repo,
-            content: item.base64Content,
-            encoding: "base64",
-          });
-          return {
-            path: item.filename,
-            mode: "100644" as const,
-            type: "blob" as const,
-            sha: blob.sha,
-          };
-        }),
-      );
+      // Create blobs sequentially to avoid GitHub secondary rate limit (403 Abuse Detection)
+      // https://docs.github.com/en/rest/guides/best-practices-for-using-the-rest-api
+      const blobs: Array<{ path: string; mode: "100644"; type: "blob"; sha: string }> = [];
+      
+      for (const item of items) {
+        const { data: blob } = await octokit.git.createBlob({
+          owner,
+          repo,
+          content: item.base64Content,
+          encoding: "base64",
+        });
+        
+        blobs.push({
+          path: item.filename,
+          mode: "100644",
+          type: "blob",
+          sha: blob.sha,
+        });
+      }
 
       // Create tree
       const { data: newTree } = await octokit.git.createTree({
