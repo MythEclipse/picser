@@ -4,7 +4,17 @@ import { Redis } from "ioredis";
 let redis: Redis | null = null;
 try {
   if (typeof process !== "undefined" && process.env.REDIS_URL) {
-    redis = new Redis(process.env.REDIS_URL);
+    const parsedUrl = new URL(process.env.REDIS_URL);
+    const dbMatch = parsedUrl.pathname ? parsedUrl.pathname.match(/\/(\d+)/) : null;
+    
+    redis = new Redis({
+      host: parsedUrl.hostname,
+      port: parseInt(parsedUrl.port || "6379", 10),
+      username: parsedUrl.username || undefined,
+      password: parsedUrl.password || undefined,
+      db: dbMatch ? parseInt(dbMatch[1], 10) : 0,
+      tls: parsedUrl.protocol === 'rediss:' ? {} : undefined,
+    });
     console.log("Redis queue enabled");
   } else {
     console.log("Redis not configured, queue disabled");
