@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { BookOpen, GitFork, Star, Zap, Shield, Globe } from 'lucide-react';
 import ImageUploader from '@/components/ImageUploader';
@@ -8,56 +8,10 @@ import UploadHistory from '@/components/UploadHistory';
 
 export default function Home() {
   const [refreshHistory, setRefreshHistory] = useState(0);
-  const [isPolling, setIsPolling] = useState(false);
 
   const handleNewUpload = () => {
     setRefreshHistory(prev => prev + 1);
-    // Start polling when new upload occurs
-    setIsPolling(true);
   };
-
-  // Smart polling: Only works when needed
-  useEffect(() => {
-    if (!isPolling) return;
-
-    let timeoutId: NodeJS.Timeout;
-
-    const processQueue = async () => {
-      try {
-        const response = await fetch('/api/process-queue', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        });
-
-        const data = await response.json();
-
-        // Decide whether to continue polling
-        // Stop if queue is explicitly empty
-        if (data.message === 'Queue is empty' || (data.queueSize === 0 && !data.processed)) {
-          console.log('Queue empty, stopping polling');
-          setIsPolling(false);
-          return;
-        }
-
-        // Continue polling if processed something OR queue is waiting
-        // Wait 5s before next check
-        timeoutId = setTimeout(processQueue, 5000);
-
-      } catch (e) {
-        // On error, wait and retry instead of stopping immediately, 
-        // in case of temporary network glitch
-        console.warn('Polling error:', e);
-        timeoutId = setTimeout(processQueue, 10000);
-      }
-    };
-
-    // Trigger immediately
-    processQueue();
-
-    return () => {
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-  }, [isPolling]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">

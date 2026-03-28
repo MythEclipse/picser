@@ -3,6 +3,7 @@ import { redisQueue } from "@/lib/redis-queue";
 import crypto from "crypto";
 import { Octokit } from "@octokit/rest";
 import { validateImage } from "@/lib/image-validation";
+import { isServerlessEnvironment } from "@/lib/environment";
 
 export const runtime = "nodejs";
 
@@ -70,9 +71,7 @@ async function directUpload(
 
 export async function POST(request: NextRequest) {
   // Auto-detect serverless/edge environment
-  const isServerless = (
-    await import("@/lib/environment")
-  ).isServerlessEnvironment();
+  const isServerless = isServerlessEnvironment();
 
   try {
     const formData = await request.formData();

@@ -1,6 +1,7 @@
 import { redisQueue } from "@/lib/redis-queue";
 import { Octokit } from "@octokit/rest";
 import { getAutoSubmitThreshold } from "@/lib/config";
+import { isServerlessEnvironment } from "@/lib/environment";
 
 export const MAX_BATCH_SIZE = 20;
 export const BATCH_TIMEOUT = 5000; // 5 seconds
@@ -24,9 +25,7 @@ export async function processQueue(): Promise<QueueProcessResult> {
     const useRedis = redisQueue.isEnabled();
 
     // Auto-detect serverless/edge; if running serverless or no Redis, disable queueing
-    const isServerless = (
-      await import("@/lib/environment")
-    ).isServerlessEnvironment();
+    const isServerless = isServerlessEnvironment();
 
     if (!useRedis || isServerless) {
       return {
