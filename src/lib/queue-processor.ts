@@ -80,10 +80,6 @@ export async function processQueue(): Promise<QueueProcessResult> {
     const repo = process.env.GITHUB_REPO!;
     const branch = process.env.GITHUB_BRANCH || "main";
 
-    const { data: refData } = await octokit.git.getRef({ owner, repo, ref: `heads/${branch}` });
-    const currentCommitSha = refData.object.sha;
-    const { data: currentCommit } = await octokit.git.getCommit({ owner, repo, commit_sha: currentCommitSha });
-    
     // Serialized blob creation for Rate-Limit avoidance
     const blobs: Array<{ path: string; mode: "100644"; type: "blob"; sha: string }> = [];
     for (const item of items) {
@@ -91,16 +87,54 @@ export async function processQueue(): Promise<QueueProcessResult> {
       blobs.push({ path: item.filename, mode: "100644", type: "blob", sha: blob.sha });
     }
 
-    const { data: newTree } = await octokit.git.createTree({ owner, repo, base_tree: currentCommit.tree.sha, tree: blobs });
     const commitMessage = items.length === 1 
       ? `Upload: ${items[0].originalName}` 
       : `Batch upload ${items.length} images`;
 
-    const { data: newCommit } = await octokit.git.createCommit({
-      owner, repo, message: commitMessage, tree: newTree.sha, parents: [currentCommitSha]
-    });
+    // RETRY LOOP FOR REF UPDATE (handles "not a fast forward" 422 errors)
+    let finalCommitSha: string | null = null;
+    let updateRetries = 0;
+    const maxUpdateRetries = 5;
 
-    await octokit.git.updateRef({ owner, repo, ref: `heads/${branch}`, sha: newCommit.sha });
+    while (updateRetries <= maxUpdateRetries) {
+      try {
+        // 1. Get latest head ref
+        const { data: refData } = await octokit.git.getRef({ owner, repo, ref: `heads/${branch}` });
+        const latestHeadSha = refData.object.sha;
+        const { data: latestCommit } = await octokit.git.getCommit({ owner, repo, commit_sha: latestHeadSha });
+        
+        // 2. Create tree on top of latest head
+        const { data: newTree } = await octokit.git.createTree({ 
+          owner, repo, base_tree: latestCommit.tree.sha, tree: blobs 
+        });
+
+        // 3. Create commit
+        const { data: newCommit } = await octokit.git.createCommit({
+          owner, repo, message: commitMessage, tree: newTree.sha, parents: [latestHeadSha]
+        });
+
+        // 4. Update ref
+        await octokit.git.updateRef({ 
+          owner, repo, ref: `heads/${branch}`, sha: newCommit.sha, force: false 
+        });
+        
+        finalCommitSha = newCommit.sha;
+        break; // Success!
+      } catch (err: unknown) {
+        const error = err as { status?: number; message?: string };
+        if (error.status === 422 && error.message?.includes("not a fast forward") && updateRetries < maxUpdateRetries) {
+          updateRetries++;
+          console.warn(`[process-queue] Conflict detected (not a fast forward). Retry ${updateRetries}/${maxUpdateRetries}...`);
+          // Brief jittered delay
+          await new Promise(r => setTimeout(r, Math.random() * 1000 + 200));
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    if (!finalCommitSha) throw new Error("Failed to update GitHub ref after retries");
+
     await redisQueue.removeItems(items.length);
 
     // Update individual item statuses to 'success'
@@ -109,9 +143,9 @@ export async function processQueue(): Promise<QueueProcessResult> {
         github: `https://github.com/${owner}/${repo}/blob/${branch}/${item.filename}`,
         raw: `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${item.filename}`,
         jsdelivr: `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${branch}/${item.filename}`,
-        github_commit: `https://github.com/${owner}/${repo}/blob/${newCommit.sha}/${item.filename}`,
-        raw_commit: `https://raw.githubusercontent.com/${owner}/${repo}/${newCommit.sha}/${item.filename}`,
-        jsdelivr_commit: `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${newCommit.sha}/${item.filename}`,
+        github_commit: `https://github.com/${owner}/${repo}/blob/${finalCommitSha}/${item.filename}`,
+        raw_commit: `https://raw.githubusercontent.com/${owner}/${repo}/${finalCommitSha}/${item.filename}`,
+        jsdelivr_commit: `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${finalCommitSha}/${item.filename}`,
       };
 
       await redisQueue.setItemStatus(item.filename, {
@@ -119,7 +153,7 @@ export async function processQueue(): Promise<QueueProcessResult> {
         filename: item.filename,
         urls,
         url: urls.jsdelivr_commit,
-        commit_sha: newCommit.sha,
+        commit_sha: finalCommitSha,
         timestamp: Date.now(),
       });
     }
@@ -128,7 +162,7 @@ export async function processQueue(): Promise<QueueProcessResult> {
       success: true,
       processed: true,
       batchSize: items.length,
-      commitSha: newCommit.sha,
+      commitSha: finalCommitSha,
       message: `Successfully batch uploaded ${items.length} files`
     };
 
