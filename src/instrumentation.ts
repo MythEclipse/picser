@@ -7,7 +7,7 @@ export async function register() {
   ) {
     console.log("[Instrumentation] Starting background queue processor...");
 
-    // Process queue every 5 seconds
+    // Process queue every 1 second for fast batching
     setInterval(async () => {
       try {
         const result = await processQueue();
@@ -17,6 +17,6 @@ export async function register() {
       } catch (error) {
         console.error("[Instrumentation] Error processing queue:", error);
       }
-    }, 5000);
+    }, 1000);
   }
 }

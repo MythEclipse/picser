@@ -56,23 +56,28 @@ async function directUpload(
   if (!response) throw new Error("Failed to upload after retries");
 
   const commitSha = response?.data?.content?.sha ?? response?.data?.commit?.sha;
+  const contentSha = response?.data?.content?.sha;
 
   return {
     success: true,
     filename,
     urls: {
+      // Branch-based URLs
       github: `https://github.com/${owner}/${repo}/blob/${branch}/${filename}`,
       raw: `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filename}`,
       jsdelivr: `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${branch}/${filename}`,
+
+      // Commit-based URLs (permanent)
+      github_commit: `https://github.com/${owner}/${repo}/blob/${commitSha}/${filename}`,
+      raw_commit: `https://raw.githubusercontent.com/${owner}/${repo}/${commitSha}/${filename}`,
+      jsdelivr_commit: `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${commitSha}/${filename}`,
     },
     commit_sha: commitSha,
+    content_sha: contentSha,
   };
 }
 
 export async function POST(request: NextRequest) {
-  // Auto-detect serverless/edge environment
-  const isServerless = isServerlessEnvironment();
-
   try {
     const formData = await request.formData();
     const file = formData.get("file") as File;
@@ -120,9 +125,21 @@ export async function POST(request: NextRequest) {
     const extension = file.name.split(".").pop() || "jpg";
     const filename = `uploads/${hash}.${extension}`;
 
+    // Auto-detect serverless/edge environment
+    const isServerless = isServerlessEnvironment();
+
     // If Redis is available and not serverless, queue for batch processing
+    // and WAIT for confirmation (synchronous feeling)
     if (redisQueue.isEnabled() && !isServerless) {
       const origin = new URL(request.url).origin;
+      
+      // Set initial status to pending
+      await redisQueue.setItemStatus(filename, {
+        status: "pending",
+        filename,
+        timestamp: Date.now(),
+      });
+
       await redisQueue.add({
         filename,
         base64Content,
@@ -133,41 +150,50 @@ export async function POST(request: NextRequest) {
         origin,
       });
 
-      const queueSize = await redisQueue.size();
+      console.log(`[Upload API] File ${filename} queued. Waiting for batch processor...`);
 
-      // Queue processing is handled iteratively by instrumentation.ts background worker.
-      console.log(`[Upload API] File ${filename} queued successfully.`);
+      // Polling Loop: Wait for status update from background processor
+      const startTime = Date.now();
+      const TIMEOUT = 45000; // 45 seconds timeout
+      const POLL_INTERVAL = 250; // 250ms polling
 
-      // Generate predicted URLs (optimistic)
-      const owner = process.env.GITHUB_OWNER!;
-      const repo = process.env.GITHUB_REPO!;
-      const branch = process.env.GITHUB_BRANCH || "main";
+      while (Date.now() - startTime < TIMEOUT) {
+        const status = await redisQueue.getItemStatus(filename);
+        
+        if (status && status.status === "success") {
+          return NextResponse.json({
+            success: true,
+            status: "success",
+            filename,
+            url: status.url,
+            urls: status.urls,
+            commit_sha: status.commit_sha,
+            size: file.size,
+            type: file.type,
+            mode: "batched",
+            note: "Successfully uploaded via high-concurrency batch commit",
+          });
+        }
 
-      const predictedUrls = {
-        github: `https://github.com/${owner}/${repo}/blob/${branch}/${filename}`,
-        raw: `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filename}`,
-        jsdelivr: `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${branch}/${filename}`,
-      };
+        if (status && status.status === "failed") {
+          return NextResponse.json(
+            { error: `Batch upload failed: ${status.error || "Unknown error"}` },
+            { status: 500 },
+          );
+        }
 
-      return NextResponse.json({
-        success: true,
-        message: "File queued for batch upload",
-        filename,
-        url: predictedUrls.raw,
-        urls: predictedUrls,
-        size: file.size,
-        type: file.type,
-        queueSize,
-        mode: "queued",
-        note: "File will be uploaded in batch (up to 100 files or after 5 seconds)",
-      });
+        // Wait before next poll
+        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL));
+      }
+
+      return NextResponse.json(
+        { error: "Upload timed out while waiting for batch processing" },
+        { status: 504 },
+      );
     }
 
-    // If Redis is not available (or we're in serverless), queue mode is disabled.
-    // Perform direct upload immediately (one commit per upload).
-    console.log(
-      `Direct upload mode (Redis: ${redisQueue.isEnabled()}, Serverless: ${isServerless})`,
-    );
+    // Fallback: Perform direct upload immediately (one commit per upload).
+    // Used when Redis is not available or in serverless environment.
     const result = await directUpload(filename, base64Content, file.name);
 
     return NextResponse.json({
@@ -175,9 +201,8 @@ export async function POST(request: NextRequest) {
       size: file.size,
       type: file.type,
       mode: "direct",
-      note: isServerless
-        ? "Uploaded directly (Queue disabled on Serverless)"
-        : "Uploaded directly (Redis queue not configured)",
+      note: "Uploaded directly (Bypassed batching)",
+      url: result.urls.jsdelivr_commit,
     });
   } catch (error) {
     console.error("Upload error:", error);
@@ -204,24 +229,14 @@ export async function GET() {
     methods: ["POST", "DELETE"],
     maxFileSize: "100MB",
     allowedTypes: ["image/*"],
+    mode: redisEnabled ? "batched-sync" : "direct",
     redis: {
       enabled: redisEnabled,
-      status: redisEnabled ? "Queue batching active" : "Direct upload mode",
+      status: redisEnabled ? "Wait-for-Batching active" : "Direct upload mode",
     },
-    batching: redisEnabled
-      ? {
-          enabled: true,
-          maxBatchSize: 100,
-          batchTimeout: "5 seconds",
-          description:
-            "Files are queued in Redis and uploaded in a single commit",
-          persistent: true,
-          serverlessSafe: true,
-        }
-      : {
-          enabled: false,
-          description: "Direct upload with retry logic (Redis not configured)",
-        },
+    note: redisEnabled 
+      ? "Uploads are batched every second for performance, but users wait for confirmation." 
+      : "All uploads are processed synchronously to ensure immediate URL availability",
   });
 }
 

@@ -1,10 +1,10 @@
-import { redisQueue } from "@/lib/redis-queue";
+import { redisQueue, QueueItem } from "@/lib/redis-queue";
 import { Octokit } from "@octokit/rest";
 import { getAutoSubmitThreshold } from "@/lib/config";
 import { isServerlessEnvironment } from "@/lib/environment";
 
-export const MAX_BATCH_SIZE = 20;
-export const BATCH_TIMEOUT = 5000; // 5 seconds
+export const MAX_BATCH_SIZE = 100;
+export const BATCH_TIMEOUT = 1000; // 1 second
 
 export interface QueueProcessResult {
   processed: boolean;
@@ -33,6 +33,7 @@ export async function processQueue(): Promise<QueueProcessResult> {
   }
 
   let lockToken: string | null = null;
+  let items: QueueItem[] = [];
 
   try {
     const AUTO_SUBMIT_THRESHOLD = getAutoSubmitThreshold();
@@ -67,7 +68,7 @@ export async function processQueue(): Promise<QueueProcessResult> {
     }
 
     // CRITICAL SECTION START
-    const items = await redisQueue.getItems(MAX_BATCH_SIZE, 100 * 1024 * 1024);
+    items = await redisQueue.getItems(MAX_BATCH_SIZE, 100 * 1024 * 1024);
     if (items.length === 0) {
       return { message: "Queue is empty after lock", processed: false, success: true };
     }
@@ -102,6 +103,27 @@ export async function processQueue(): Promise<QueueProcessResult> {
     await octokit.git.updateRef({ owner, repo, ref: `heads/${branch}`, sha: newCommit.sha });
     await redisQueue.removeItems(items.length);
 
+    // Update individual item statuses to 'success'
+    for (const item of items) {
+      const urls = {
+        github: `https://github.com/${owner}/${repo}/blob/${branch}/${item.filename}`,
+        raw: `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${item.filename}`,
+        jsdelivr: `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${branch}/${item.filename}`,
+        github_commit: `https://github.com/${owner}/${repo}/blob/${newCommit.sha}/${item.filename}`,
+        raw_commit: `https://raw.githubusercontent.com/${owner}/${repo}/${newCommit.sha}/${item.filename}`,
+        jsdelivr_commit: `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${newCommit.sha}/${item.filename}`,
+      };
+
+      await redisQueue.setItemStatus(item.filename, {
+        status: "success",
+        filename: item.filename,
+        urls,
+        url: urls.jsdelivr_commit,
+        commit_sha: newCommit.sha,
+        timestamp: Date.now(),
+      });
+    }
+
     return {
       success: true,
       processed: true,
@@ -112,6 +134,19 @@ export async function processQueue(): Promise<QueueProcessResult> {
 
   } catch (error) {
     console.error("[process-queue] Distributed worker error:", error);
+    
+    // Attempt to mark items as failed if we have them in memory
+    if (items && items.length > 0) {
+      for (const item of items) {
+         await redisQueue.setItemStatus(item.filename, {
+          status: "failed",
+          filename: item.filename,
+          error: error instanceof Error ? error.message : "Batch upload failed",
+          timestamp: Date.now(),
+        }).catch(() => {});
+      }
+    }
+
     return {
       success: false,
       processed: false,

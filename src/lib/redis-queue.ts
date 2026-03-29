@@ -39,7 +39,28 @@ export interface QueueItem {
   type: string;
   timestamp: number;
   origin?: string;
+  id?: string; // Optional unique ID for tracking
 }
+
+export interface ItemStatus {
+  status: "pending" | "success" | "failed";
+  filename: string;
+  url?: string;
+  urls?: {
+    github: string;
+    raw: string;
+    jsdelivr: string;
+    github_commit: string;
+    raw_commit: string;
+    jsdelivr_commit: string;
+  };
+  commit_sha?: string;
+  error?: string;
+  timestamp: number;
+}
+
+const STATUS_PREFIX = "upload-status:";
+const STATUS_EXPIRY = 600; // 10 minutes
 
 export class RedisUploadQueue {
   private enabled: boolean;
@@ -224,6 +245,27 @@ export class RedisUploadQueue {
 
     const item = this.safeParse(items[0]);
     return item ? item.timestamp : null;
+  }
+
+  /**
+   * Status Tracking
+   */
+  async setItemStatus(filename: string, status: ItemStatus): Promise<void> {
+    if (!this.enabled || !redis) return;
+    const key = `${STATUS_PREFIX}${filename}`;
+    await redis.setex(key, STATUS_EXPIRY, JSON.stringify(status));
+  }
+
+  async getItemStatus(filename: string): Promise<ItemStatus | null> {
+    if (!this.enabled || !redis) return null;
+    const key = `${STATUS_PREFIX}${filename}`;
+    const data = await redis.get(key);
+    if (!data) return null;
+    try {
+      return JSON.parse(data) as ItemStatus;
+    } catch {
+      return null;
+    }
   }
 }
 
