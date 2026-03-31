@@ -27,9 +27,11 @@ try {
 
 const QUEUE_KEY = "upload-queue";
 const LOCK_KEY = "upload-queue-lock";
-const LOCK_TIMEOUT = 30000; // 30 seconds
-import { getAutoSubmitThreshold } from "@/lib/config";
+import { getAutoSubmitThreshold, getQueueMaxDepth, getStatusExpirySeconds } from "@/lib/config";
 const AUTO_SUBMIT_THRESHOLD = getAutoSubmitThreshold(); // auto-submit when queue reaches this
+const MAX_QUEUE_DEPTH = getQueueMaxDepth();
+const LOCK_TIMEOUT = 60000; // 60 seconds
+const STATUS_EXPIRY = getStatusExpirySeconds(); // dynamic from config
 
 export interface QueueItem {
   filename: string;
@@ -60,7 +62,6 @@ export interface ItemStatus {
 }
 
 const STATUS_PREFIX = "upload-status:";
-const STATUS_EXPIRY = 600; // 10 minutes
 
 export class RedisUploadQueue {
   private enabled: boolean;
@@ -80,15 +81,19 @@ export class RedisUploadQueue {
     if (!this.enabled || !redis) {
       throw new Error("Redis queue not available");
     }
-    await redis.lpush(QUEUE_KEY, JSON.stringify(item));
+
     const queueSize = await redis.llen(QUEUE_KEY);
-    console.log(`Added to queue. Queue size: ${queueSize}`);
+    if (queueSize >= MAX_QUEUE_DEPTH) {
+      throw new Error("Upload queue is full. Please retry shortly.");
+    }
+
+    await redis.lpush(QUEUE_KEY, JSON.stringify(item));
+    const updatedQueueSize = await redis.llen(QUEUE_KEY);
+    console.log(`Added to queue. Queue size: ${updatedQueueSize}`);
 
     // Trigger processing automatically when threshold reached
-    if (typeof queueSize === "number" && queueSize >= AUTO_SUBMIT_THRESHOLD) {
-      console.log(
-        `Auto-submit threshold reached (${AUTO_SUBMIT_THRESHOLD}), waiting for next instrumentation tick`,
-      );
+    if (updatedQueueSize >= AUTO_SUBMIT_THRESHOLD) {
+      console.log(`Auto-submit threshold reached (${AUTO_SUBMIT_THRESHOLD}), waiting for next instrumentation tick`);
     }
   }
 
@@ -219,6 +224,21 @@ export class RedisUploadQueue {
     `;
     
     await redis.eval(script, 1, LOCK_KEY, token);
+  }
+
+  async renewLock(token: string | null): Promise<boolean> {
+    if (!this.enabled || !redis || !token) return false;
+    
+    const script = `
+      if redis.call("get", KEYS[1]) == ARGV[1] then
+        return redis.call("pexpire", KEYS[1], ARGV[2])
+      else
+        return 0
+      end
+    `;
+
+    const result = await redis.eval(script, 1, LOCK_KEY, token, LOCK_TIMEOUT);
+    return result === 1;
   }
 
   /**

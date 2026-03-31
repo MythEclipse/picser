@@ -4,6 +4,7 @@ import { getAutoSubmitThreshold } from "@/lib/config";
 import { isServerlessEnvironment } from "@/lib/environment";
 
 export const MAX_BATCH_SIZE = 100;
+export const LOCK_REFRESH_MS = 30000; // 30 seconds
 
 async function directUploadSingleToGithub(
   octokit: Octokit,
@@ -55,6 +56,7 @@ export async function processQueue(): Promise<QueueProcessResult> {
   }
 
   let lockToken: string | null = null;
+  let lockRefresher: ReturnType<typeof setInterval> | null = null;
   let items: QueueItem[] = [];
 
   try {
@@ -89,13 +91,22 @@ export async function processQueue(): Promise<QueueProcessResult> {
       return { message: "Lock acquisition failed (concurrent processing)", processed: false, success: true };
     }
 
-    // CRITICAL SECTION START
-    items = await redisQueue.getItems(MAX_BATCH_SIZE, 100 * 1024 * 1024);
-    if (items.length === 0) {
-      return { message: "Queue is empty after lock", processed: false, success: true };
-    }
+      lockRefresher = setInterval(async () => {
+        if (lockToken) {
+          const renewed = await redisQueue.renewLock(lockToken);
+          if (!renewed) {
+            console.warn("[process-queue] Failed to renew lock (possibly stolen)");
+          }
+        }
+      }, LOCK_REFRESH_MS);
 
-    console.log(`[process-queue] Processing batch of ${items.length} files (Distributed Instance: ${Math.random().toString(36).substring(7)})`);
+      // CRITICAL SECTION START
+      items = await redisQueue.getItems(MAX_BATCH_SIZE, 100 * 1024 * 1024);
+      if (items.length === 0) {
+        return { message: "Queue is empty after lock", processed: false, success: true };
+      }
+
+      console.log(`[process-queue] Processing batch of ${items.length} files (Distributed Instance: ${Math.random().toString(36).substring(7)})`);
 
     const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
     const owner = process.env.GITHUB_OWNER!;
@@ -278,6 +289,9 @@ export async function processQueue(): Promise<QueueProcessResult> {
       message: "Internal worker exception"
     };
   } finally {
+    if (lockRefresher) {
+      clearInterval(lockRefresher);
+    }
     if (lockToken) {
       await redisQueue.releaseLock(lockToken);
     }

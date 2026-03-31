@@ -142,16 +142,23 @@ export async function POST(request: NextRequest) {
       await redisQueue.setItemStatus(id, pendingStatus);
       await redisQueue.setItemStatus(filename, pendingStatus);
 
-      await redisQueue.add({
-        id,
-        filename,
-        base64Content,
-        originalName: file.name,
-        size: file.size,
-        type: file.type,
-        timestamp: Date.now(),
-        origin,
-      });
+      try {
+        await redisQueue.add({
+          id,
+          filename,
+          base64Content,
+          originalName: file.name,
+          size: file.size,
+          type: file.type,
+          timestamp: Date.now(),
+          origin,
+        });
+      } catch (queueError) {
+        if (queueError instanceof Error && queueError.message.includes("queue is full")) {
+          return NextResponse.json({ error: queueError.message }, { status: 429 });
+        }
+        throw queueError;
+      }
 
       console.log(`[Upload API] File ${filename} queued (id=${id}).`);
       return NextResponse.json({

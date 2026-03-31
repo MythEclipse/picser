@@ -3,16 +3,19 @@ import { redisQueue } from "@/lib/redis-queue";
 
 export async function GET(request: NextRequest) {
   const id = request.nextUrl.searchParams.get("id");
+  const filename = request.nextUrl.searchParams.get("filename");
 
-  if (!id) {
-    return NextResponse.json({ error: "Missing id query parameter" }, { status: 400 });
+  if (!id && !filename) {
+    return NextResponse.json({ error: "Missing id or filename query parameter" }, { status: 400 });
   }
 
   if (!redisQueue.isEnabled()) {
     return NextResponse.json({ error: "Redis queue not enabled" }, { status: 503 });
   }
 
-  const status = await redisQueue.getStatusById(id);
+  const status = id
+    ? await redisQueue.getStatusById(id)
+    : await redisQueue.getStatusByFilename(filename as string);
 
   if (!status) {
     return NextResponse.json({

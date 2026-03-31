@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Image from 'next/image';
 import { Upload, Copy, ExternalLink, CheckCircle, AlertCircle, Zap, Star, Link as LinkIcon } from 'lucide-react';
 import { saveToHistory } from '@/utils/storage';
@@ -70,8 +70,8 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
                 setUploadStatus('pending');
 
                 const startTime = Date.now();
-                const timeout = 45000;
-                const pollInterval = 500;
+                const timeout = 120000; // 2 minutes
+                let attempt = 0;
 
                 while (Date.now() - startTime < timeout) {
                     const statusResponse = await fetch(`/api/upload/status?id=${encodeURIComponent(result.id)}`);
@@ -79,7 +79,9 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
 
                     if (statusResponse.status === 202) {
                         setUploadStatus('pending');
-                        await new Promise((resolve) => setTimeout(resolve, pollInterval));
+                        const delay = Math.min(2000, 250 + attempt * 200);
+                        await new Promise((resolve) => setTimeout(resolve, delay));
+                        attempt += 1;
                         continue;
                     }
 
@@ -100,7 +102,21 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
                         return;
                     }
 
-                    throw new Error(statusResult.error || 'Upload failed in batch queue');
+                    if (statusResponse.status === 404) {
+                        if (attempt < 5) {
+                            const delay = Math.min(1000, 250 + attempt * 150);
+                            await new Promise((resolve) => setTimeout(resolve, delay));
+                            attempt += 1;
+                            continue;
+                        }
+                        throw new Error('Upload status not found after retries.');
+                    }
+
+                    if (statusResponse.status === 500) {
+                        throw new Error(statusResult.error || 'Upload failed in batch processing');
+                    }
+
+                    throw new Error('Unexpected status response for upload progress');
                 }
 
                 throw new Error('Upload timed out while waiting for queued processing');
@@ -183,11 +199,25 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
     };
 
     const resetUpload = () => {
+        if (previewFile?.url) {
+            URL.revokeObjectURL(previewFile.url);
+        }
         setUploadResult(null);
         setError(null);
         setPreviewFile(null);
+        setUploadId(null);
+        setUploadStatus(null);
         setCopiedUrl(null);
     };
+
+    // Clean up preview object URLs on unmount
+    useEffect(() => {
+        return () => {
+            if (previewFile?.url) {
+                URL.revokeObjectURL(previewFile.url);
+            }
+        };
+    }, [previewFile]);
 
     const formatFileSize = (bytes: number) => {
         if (bytes === 0) return '0 Bytes';
