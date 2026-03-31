@@ -1,4 +1,5 @@
 import sharp from "sharp";
+import { logger } from "@/lib/logger";
 
 /**
  * Validates an image buffer to ensure it is a valid image format.
@@ -18,7 +19,7 @@ export async function validateImage(buffer: Buffer): Promise<sharp.Metadata> {
     return metadata;
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
-    console.warn(`[ImageValidator] Rejected input buffer: ${msg}`);
+    logger.warn(`[ImageValidator] Rejected input buffer: ${msg}`);
     throw new Error("Invalid or corrupted image file");
   }
 }

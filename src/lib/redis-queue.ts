@@ -1,4 +1,5 @@
 import { Redis } from "ioredis";
+import { logger } from "@/lib/logger";
 // Using globalThis.crypto for cross-runtime (Edge/Node) compatibility
 
 // Autodetect Redis config
@@ -16,12 +17,12 @@ try {
       db: dbMatch ? parseInt(dbMatch[1], 10) : 0,
       tls: parsedUrl.protocol === 'rediss:' ? {} : undefined,
     });
-    console.log("Redis queue enabled");
+    logger.info("Redis queue enabled");
   } else {
-    console.log("Redis not configured, queue disabled");
+    logger.warn("Redis not configured, queue disabled");
   }
 } catch (error) {
-  console.warn("Failed to initialize Redis, queue disabled:", error);
+  logger.warn("Failed to initialize Redis, queue disabled:", error);
   redis = null;
 }
 
@@ -91,11 +92,11 @@ export class RedisUploadQueue {
 
     await redis.lpush(QUEUE_KEY, JSON.stringify(item));
     const updatedQueueSize = await redis.llen(QUEUE_KEY);
-    console.log(`Added to queue. Queue size: ${updatedQueueSize}`);
+    logger.info(`Added to queue. Queue size: ${updatedQueueSize}`);
 
     // Trigger processing automatically when threshold reached
     if (updatedQueueSize >= AUTO_SUBMIT_THRESHOLD) {
-      console.log(`Auto-submit threshold reached (${AUTO_SUBMIT_THRESHOLD}), waiting for next instrumentation tick`);
+      logger.info(`Auto-submit threshold reached (${AUTO_SUBMIT_THRESHOLD}), waiting for next instrumentation tick`);
     }
   }
 
@@ -153,7 +154,7 @@ export class RedisUploadQueue {
       }
       return null;
     } catch (e) {
-      console.warn("Failed to parse queue item:", e);
+      logger.warn("Failed to parse queue item:", e);
       return null;
     }
   }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Octokit } from "@octokit/rest";
 import { validateImage } from "@/lib/image-validation";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 
@@ -141,7 +142,7 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Public upload error:", error);
+    logger.error("Public upload error:", error);
 
     if (error instanceof Error) {
       // Handle specific GitHub API errors

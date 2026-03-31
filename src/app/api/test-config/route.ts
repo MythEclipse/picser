@@ -1,5 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
-
+import { NextRequest, NextResponse } from 'next/server';import { logger } from "@/lib/logger";
 export const runtime = "edge";
 
 export async function POST(request: NextRequest) {
@@ -96,7 +95,7 @@ export async function POST(request: NextRequest) {
         });
 
     } catch (error) {
-        console.error('Test API error:', error);
+        logger.error('Test API error:', error);
 
         return NextResponse.json(
             {

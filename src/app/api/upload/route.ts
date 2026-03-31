@@ -4,6 +4,7 @@ import crypto from "crypto";
 import { Octokit } from "@octokit/rest";
 import { validateImage } from "@/lib/image-validation";
 import { isServerlessEnvironment } from "@/lib/environment";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 
@@ -162,7 +163,7 @@ export async function POST(request: NextRequest) {
         throw queueError;
       }
 
-      console.log(`[Upload API] File ${filename} queued (id=${id}).`);
+      logger.info(`[Upload API] File ${filename} queued (id=${id}).`);
       return NextResponse.json({
         success: true,
         message: 'Upload queued for batch processing',
@@ -185,7 +186,7 @@ export async function POST(request: NextRequest) {
       url: result.urls.jsdelivr_commit,
     });
   } catch (error) {
-    console.error("Upload error:", error);
+    logger.error("Upload error:", error);
 
     if (error instanceof Error) {
       return NextResponse.json(
@@ -293,7 +294,7 @@ export async function DELETE(request: NextRequest) {
       message: `File ${filename} successfully deleted from GitHub`,
     });
   } catch (error) {
-    console.error("Delete error:", error);
+    logger.error("Delete error:", error);
     if (error instanceof Error) {
       return NextResponse.json(
         { error: `Delete failed: ${error.message}` },

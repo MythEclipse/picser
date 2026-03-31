@@ -2,6 +2,7 @@ import { redisQueue, QueueItem, ItemStatus } from "@/lib/redis-queue";
 import { Octokit } from "@octokit/rest";
 import { getAutoSubmitThreshold } from "@/lib/config";
 import { isServerlessEnvironment } from "@/lib/environment";
+import { logger } from "@/lib/logger";
 
 export const MAX_BATCH_SIZE = 100;
 export const LOCK_REFRESH_MS = 30000; // 30 seconds
@@ -96,7 +97,7 @@ export async function processQueue(): Promise<QueueProcessResult> {
         if (lockToken) {
           const renewed = await redisQueue.renewLock(lockToken);
           if (!renewed) {
-            console.warn("[process-queue] Failed to renew lock (possibly stolen)");
+            logger.warn("[process-queue] Failed to renew lock (possibly stolen)");
           }
         }
       }, LOCK_REFRESH_MS);
@@ -107,7 +108,7 @@ export async function processQueue(): Promise<QueueProcessResult> {
         return { message: "Queue is empty after lock", processed: false, success: true };
       }
 
-      console.log(`[process-queue] Processing batch of ${items.length} files (Distributed Instance: ${Math.random().toString(36).substring(7)})`);
+      logger.info(`[process-queue] Processing batch of ${items.length} files (Distributed Instance: ${Math.random().toString(36).substring(7)})`);
 
       // Increment attempts and separate items that should still be processed.
       const processableItems: QueueItem[] = [];
@@ -227,7 +228,7 @@ export async function processQueue(): Promise<QueueProcessResult> {
         const error = err as { status?: number; message?: string };
         if (error.status === 422 && error.message?.includes("not a fast forward") && updateRetries < maxUpdateRetries) {
           updateRetries++;
-          console.warn(`[process-queue] Conflict detected (not a fast forward). Retry ${updateRetries}/${maxUpdateRetries}...`);
+          logger.warn(`[process-queue] Conflict detected (not a fast forward). Retry ${updateRetries}/${maxUpdateRetries}...`);
           // Brief jittered delay
           await new Promise(r => setTimeout(r, Math.random() * 1000 + 200));
           continue;
@@ -237,7 +238,7 @@ export async function processQueue(): Promise<QueueProcessResult> {
     }
 
     if (!finalCommitSha) {
-      console.warn("[process-queue] Batch commit not obtained after retries, attempting per-item fallback upload");
+      logger.warn("[process-queue] Batch commit not obtained after retries, attempting per-item fallback upload");
 
       let anythingSucceeded = false;
       const retryAfterFallback: QueueItem[] = [];
@@ -342,7 +343,7 @@ export async function processQueue(): Promise<QueueProcessResult> {
     };
 
   } catch (error) {
-    console.error("[process-queue] Distributed worker error:", error);
+    logger.error("[process-queue] Distributed worker error:", error);
     
     // Attempt to mark items as failed if we have them in memory
     if (items && items.length > 0) {
