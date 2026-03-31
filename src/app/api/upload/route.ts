@@ -118,12 +118,13 @@ export async function POST(request: NextRequest) {
 
     const base64Content = buffer.toString("base64");
 
-    // Generate unique filename based on SHA-256 hash
+    // Generate unique filename based on SHA-256 hash + random suffix to avoid collisions
     const hashSum = crypto.createHash("sha256");
     hashSum.update(buffer);
     const hash = hashSum.digest("hex").slice(0, 16); // Use first 16 chars for shortness
     const extension = file.name.split(".").pop() || "jpg";
-    const filename = `uploads/${hash}.${extension}`;
+    const suffix = crypto.randomUUID().slice(0, 8);
+    const filename = `uploads/${hash}-${suffix}.${extension}`;
 
     // Auto-detect serverless/edge environment
     const isServerless = isServerlessEnvironment();
@@ -152,6 +153,7 @@ export async function POST(request: NextRequest) {
           type: file.type,
           timestamp: Date.now(),
           origin,
+          attempts: 0,
         });
       } catch (queueError) {
         if (queueError instanceof Error && queueError.message.includes("queue is full")) {

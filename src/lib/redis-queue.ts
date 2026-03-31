@@ -42,6 +42,7 @@ export interface QueueItem {
   timestamp: number;
   origin?: string;
   id?: string; // Optional unique ID for tracking
+  attempts?: number; // Retry attempts for resilient processing
 }
 
 export interface ItemStatus {
@@ -226,9 +227,13 @@ export class RedisUploadQueue {
     await redis.eval(script, 1, LOCK_KEY, token);
   }
 
+  async getLockToken(): Promise<string | null> {
+    if (!this.enabled || !redis) return null;
+    return await redis.get(LOCK_KEY);
+  }
+
   async renewLock(token: string | null): Promise<boolean> {
     if (!this.enabled || !redis || !token) return false;
-    
     const script = `
       if redis.call("get", KEYS[1]) == ARGV[1] then
         return redis.call("pexpire", KEYS[1], ARGV[2])
