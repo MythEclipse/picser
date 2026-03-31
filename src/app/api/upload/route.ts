@@ -135,7 +135,7 @@ export async function POST(request: NextRequest) {
       const origin = new URL(request.url).origin;
 
       const pendingStatus = {
-        status: 'pending',
+        status: 'pending' as const,
         filename,
         timestamp: Date.now(),
       };
