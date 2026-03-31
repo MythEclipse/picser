@@ -5,6 +5,7 @@ import { isServerlessEnvironment } from "@/lib/environment";
 
 export const MAX_BATCH_SIZE = 100;
 export const LOCK_REFRESH_MS = 30000; // 30 seconds
+export const MAX_ITEM_ATTEMPTS = 3;
 
 async function directUploadSingleToGithub(
   octokit: Octokit,
@@ -100,29 +101,98 @@ export async function processQueue(): Promise<QueueProcessResult> {
         }
       }, LOCK_REFRESH_MS);
 
-      // CRITICAL SECTION START
-      items = await redisQueue.getItems(MAX_BATCH_SIZE, 100 * 1024 * 1024);
+      // CRITICAL SECTION START: move items into in-progress set to avoid reprocessing
+      items = await redisQueue.moveBatchToProcessing(MAX_BATCH_SIZE);
       if (items.length === 0) {
         return { message: "Queue is empty after lock", processed: false, success: true };
       }
 
       console.log(`[process-queue] Processing batch of ${items.length} files (Distributed Instance: ${Math.random().toString(36).substring(7)})`);
 
-    const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
-    const owner = process.env.GITHUB_OWNER!;
-    const repo = process.env.GITHUB_REPO!;
-    const branch = process.env.GITHUB_BRANCH || "main";
+      // Increment attempts and separate items that should still be processed.
+      const processableItems: QueueItem[] = [];
+      for (const item of items) {
+        item.attempts = (item.attempts ?? 0) + 1;
+        if (item.attempts > MAX_ITEM_ATTEMPTS) {
+          const failedPayload: ItemStatus = {
+            status: "failed",
+            filename: item.filename,
+            error: "Max retry attempts exceeded",
+            timestamp: Date.now(),
+          };
+          if (item.id) {
+            await redisQueue.setItemStatus(item.id, failedPayload).catch(() => {});
+          }
+          await redisQueue.setItemStatus(item.filename, failedPayload).catch(() => {});
+          continue;
+        }
+        processableItems.push(item);
+      }
+
+      if (processableItems.length === 0) {
+        await redisQueue.removeProcessedItems(items.length);
+        return {
+          success: true,
+          processed: true,
+          batchSize: 0,
+          message: "All items exceeded retry limit, none processed",
+        };
+      }
+
+      const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+      const owner = process.env.GITHUB_OWNER!;
+      const repo = process.env.GITHUB_REPO!;
+      const branch = process.env.GITHUB_BRANCH || "main";
 
     // Serialized blob creation for Rate-Limit avoidance
     const blobs: Array<{ path: string; mode: "100644"; type: "blob"; sha: string }> = [];
-    for (const item of items) {
-      const { data: blob } = await octokit.git.createBlob({ owner, repo, content: item.base64Content, encoding: "base64" });
-      blobs.push({ path: item.filename, mode: "100644", type: "blob", sha: blob.sha });
+    const failedItems: QueueItem[] = [];
+
+    for (const item of processableItems) {
+      try {
+        const { data: blob } = await octokit.git.createBlob({ owner, repo, content: item.base64Content, encoding: "base64" });
+        blobs.push({ path: item.filename, mode: "100644", type: "blob", sha: blob.sha });
+      } catch (blobErr) {
+        const errMessage = blobErr instanceof Error ? blobErr.message : "Blob creation failed";
+        const failedPayload: ItemStatus = {
+          status: "failed",
+          filename: item.filename,
+          error: errMessage,
+          timestamp: Date.now(),
+        };
+        if (item.id) await redisQueue.setItemStatus(item.id, failedPayload).catch(() => {});
+        await redisQueue.setItemStatus(item.filename, failedPayload).catch(() => {});
+
+        if ((item.attempts ?? 0) < MAX_ITEM_ATTEMPTS) {
+          failedItems.push(item);
+        }
+      }
     }
 
-    const commitMessage = items.length === 1 
-      ? `Upload: ${items[0].originalName}` 
-      : `Batch upload ${items.length} images`;
+    const itemsToCommit = processableItems.filter(item => !failedItems.includes(item));
+    const commitMessage = itemsToCommit.length === 1 
+      ? `Upload: ${itemsToCommit[0].originalName}` 
+      : `Batch upload ${itemsToCommit.length} images`;
+
+    const requeueItems: QueueItem[] = [];
+    for (const item of failedItems) {
+      if ((item.attempts ?? 0) < MAX_ITEM_ATTEMPTS) {
+        requeueItems.push(item);
+      }
+    }
+
+    if (itemsToCommit.length === 0) {
+      if (requeueItems.length > 0) {
+        await redisQueue.requeueItems(requeueItems);
+      }
+      await redisQueue.removeProcessedItems(items.length);
+      return {
+        success: false,
+        processed: false,
+        batchSize: 0,
+        message: "All processable items failed blob creation, queued for retry where possible",
+      };
+    }
 
     // RETRY LOOP FOR REF UPDATE (handles "not a fast forward" 422 errors)
     let finalCommitSha: string | null = null;
@@ -170,7 +240,9 @@ export async function processQueue(): Promise<QueueProcessResult> {
       console.warn("[process-queue] Batch commit not obtained after retries, attempting per-item fallback upload");
 
       let anythingSucceeded = false;
-      for (const item of items) {
+      const retryAfterFallback: QueueItem[] = [];
+
+      for (const item of itemsToCommit) {
         try {
           const itemCommitSha = await directUploadSingleToGithub(octokit, owner, repo, branch, item);
           anythingSucceeded = true;
@@ -205,11 +277,20 @@ export async function processQueue(): Promise<QueueProcessResult> {
           };
           if (item.id) await redisQueue.setItemStatus(item.id, statusPayload).catch(() => {});
           await redisQueue.setItemStatus(item.filename, statusPayload).catch(() => {});
+
+          if ((item.attempts ?? 0) < MAX_ITEM_ATTEMPTS) {
+            retryAfterFallback.push(item);
+          }
         }
       }
 
+      // Requeue items that can still be retried after failed fallback.
+      if (retryAfterFallback.length > 0) {
+        await redisQueue.requeueItems(retryAfterFallback);
+      }
+
       // Drain queue after fallback attempt to avoid reprocessing same items repeatedly
-      await redisQueue.removeItems(items.length);
+      await redisQueue.removeProcessedItems(items.length);
 
       return {
         success: anythingSucceeded,
@@ -223,10 +304,10 @@ export async function processQueue(): Promise<QueueProcessResult> {
       };
     }
 
-    await redisQueue.removeItems(items.length);
+    await redisQueue.removeProcessedItems(items.length);
 
     // Update individual item statuses to 'success'
-    for (const item of items) {
+    for (const item of itemsToCommit) {
       const urls = {
         github: `https://github.com/${owner}/${repo}/blob/${branch}/${item.filename}`,
         raw: `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${item.filename}`,
@@ -279,7 +360,7 @@ export async function processQueue(): Promise<QueueProcessResult> {
         await redisQueue.setItemStatus(item.filename, failedPayload).catch(() => {});
       }
       // Avoid infinite reprocessing of same failed items
-      await redisQueue.removeItems(items.length);
+      await redisQueue.removeProcessedItems(items.length);
     }
 
     return {

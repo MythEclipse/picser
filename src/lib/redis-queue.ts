@@ -26,6 +26,7 @@ try {
 }
 
 const QUEUE_KEY = "upload-queue";
+const IN_PROGRESS_KEY = "upload-queue-inprogress";
 const LOCK_KEY = "upload-queue-lock";
 import { getAutoSubmitThreshold, getQueueMaxDepth, getStatusExpirySeconds } from "@/lib/config";
 const AUTO_SUBMIT_THRESHOLD = getAutoSubmitThreshold(); // auto-submit when queue reaches this
@@ -104,6 +105,39 @@ export class RedisUploadQueue {
   async size(): Promise<number> {
     if (!this.enabled || !redis) return 0;
     return await redis.llen(QUEUE_KEY);
+  }
+
+  async inProgressSize(): Promise<number> {
+    if (!this.enabled || !redis) return 0;
+    return await redis.llen(IN_PROGRESS_KEY);
+  }
+
+  async moveBatchToProcessing(maxItems: number = 100): Promise<QueueItem[]> {
+    if (!this.enabled || !redis) return [];
+
+    const items: QueueItem[] = [];
+    for (let i = 0; i < maxItems; i++) {
+      const raw = await redis.rpoplpush(QUEUE_KEY, IN_PROGRESS_KEY);
+      if (!raw) break;
+      const item = this.safeParse(raw);
+      if (item) items.push(item);
+    }
+
+    return items;
+  }
+
+  async removeProcessedItems(count: number): Promise<void> {
+    if (!this.enabled || !redis) return;
+    for (let i = 0; i < count; i++) {
+      await redis.rpop(IN_PROGRESS_KEY);
+    }
+  }
+
+  async requeueItems(items: QueueItem[]): Promise<void> {
+    if (!this.enabled || !redis) return;
+    for (const item of items) {
+      await redis.lpush(QUEUE_KEY, JSON.stringify(item));
+    }
   }
 
   /**
