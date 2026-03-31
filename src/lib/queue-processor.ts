@@ -1,9 +1,31 @@
-import { redisQueue, QueueItem } from "@/lib/redis-queue";
+import { redisQueue, QueueItem, ItemStatus } from "@/lib/redis-queue";
 import { Octokit } from "@octokit/rest";
 import { getAutoSubmitThreshold } from "@/lib/config";
 import { isServerlessEnvironment } from "@/lib/environment";
 
 export const MAX_BATCH_SIZE = 100;
+
+async function directUploadSingleToGithub(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  branch: string,
+  item: QueueItem,
+) {
+  const message = `Fallback direct upload: ${item.originalName}`;
+
+  const response = await octokit.repos.createOrUpdateFileContents({
+    owner,
+    repo,
+    path: item.filename,
+    message,
+    content: item.base64Content,
+    branch,
+  });
+
+  const commitSha = response?.data?.content?.sha ?? response?.data?.commit?.sha;
+  return commitSha;
+}
 export const BATCH_TIMEOUT = 1000; // 1 second
 
 export interface QueueProcessResult {
@@ -133,7 +155,62 @@ export async function processQueue(): Promise<QueueProcessResult> {
       }
     }
 
-    if (!finalCommitSha) throw new Error("Failed to update GitHub ref after retries");
+    if (!finalCommitSha) {
+      console.warn("[process-queue] Batch commit not obtained after retries, attempting per-item fallback upload");
+
+      let anythingSucceeded = false;
+      for (const item of items) {
+        try {
+          const itemCommitSha = await directUploadSingleToGithub(octokit, owner, repo, branch, item);
+          anythingSucceeded = true;
+
+          const urls = {
+            github: `https://github.com/${owner}/${repo}/blob/${branch}/${item.filename}`,
+            raw: `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${item.filename}`,
+            jsdelivr: `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${branch}/${item.filename}`,
+            github_commit: `https://github.com/${owner}/${repo}/blob/${itemCommitSha}/${item.filename}`,
+            raw_commit: `https://raw.githubusercontent.com/${owner}/${repo}/${itemCommitSha}/${item.filename}`,
+            jsdelivr_commit: `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${itemCommitSha}/${item.filename}`,
+          };
+
+          const statusPayload: ItemStatus = {
+            status: "success",
+            filename: item.filename,
+            urls,
+            url: urls.jsdelivr_commit,
+            commit_sha: itemCommitSha,
+            timestamp: Date.now(),
+          };
+
+          if (item.id) await redisQueue.setItemStatus(item.id, statusPayload);
+          await redisQueue.setItemStatus(item.filename, statusPayload);
+        } catch (itemErr) {
+          const errMessage = itemErr instanceof Error ? itemErr.message : "Unknown per-item fallback error";
+          const statusPayload: ItemStatus = {
+            status: "failed",
+            filename: item.filename,
+            error: errMessage,
+            timestamp: Date.now(),
+          };
+          if (item.id) await redisQueue.setItemStatus(item.id, statusPayload).catch(() => {});
+          await redisQueue.setItemStatus(item.filename, statusPayload).catch(() => {});
+        }
+      }
+
+      // Drain queue after fallback attempt to avoid reprocessing same items repeatedly
+      await redisQueue.removeItems(items.length);
+
+      return {
+        success: anythingSucceeded,
+        processed: true,
+        batchSize: items.length,
+        commitSha: anythingSucceeded ? "partial-fallback" : undefined,
+        message: anythingSucceeded
+          ? "Batch commit failed, fallback per-item uploads completed (some may have failed)"
+          : "Batch commit and per-item fallback uploads both failed",
+        error: anythingSucceeded ? undefined : "Batch+Fallback failed",
+      };
+    }
 
     await redisQueue.removeItems(items.length);
 
@@ -148,14 +225,20 @@ export async function processQueue(): Promise<QueueProcessResult> {
         jsdelivr_commit: `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${finalCommitSha}/${item.filename}`,
       };
 
-      await redisQueue.setItemStatus(item.filename, {
+      const statusPayload: ItemStatus = {
         status: "success",
         filename: item.filename,
         urls,
         url: urls.jsdelivr_commit,
         commit_sha: finalCommitSha,
         timestamp: Date.now(),
-      });
+      };
+
+      // Store by id and by filename for compatibility
+      if (item.id) {
+        await redisQueue.setItemStatus(item.id, statusPayload);
+      }
+      await redisQueue.setItemStatus(item.filename, statusPayload);
     }
 
     return {
@@ -172,13 +255,20 @@ export async function processQueue(): Promise<QueueProcessResult> {
     // Attempt to mark items as failed if we have them in memory
     if (items && items.length > 0) {
       for (const item of items) {
-         await redisQueue.setItemStatus(item.filename, {
+        const failedPayload: ItemStatus = {
           status: "failed",
           filename: item.filename,
           error: error instanceof Error ? error.message : "Batch upload failed",
           timestamp: Date.now(),
-        }).catch(() => {});
+        };
+
+        if (item.id) {
+          await redisQueue.setItemStatus(item.id, failedPayload).catch(() => {});
+        }
+        await redisQueue.setItemStatus(item.filename, failedPayload).catch(() => {});
       }
+      // Avoid infinite reprocessing of same failed items
+      await redisQueue.removeItems(items.length);
     }
 
     return {

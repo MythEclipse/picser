@@ -127,20 +127,23 @@ export async function POST(request: NextRequest) {
 
     // Auto-detect serverless/edge environment
     const isServerless = isServerlessEnvironment();
+    const queued = redisQueue.isEnabled() && !isServerless;
 
-    // If Redis is available and not serverless, queue for batch processing
-    // and WAIT for confirmation (synchronous feeling)
-    if (redisQueue.isEnabled() && !isServerless) {
+    if (queued) {
+      const id = crypto.randomUUID();
       const origin = new URL(request.url).origin;
-      
-      // Set initial status to pending
-      await redisQueue.setItemStatus(filename, {
-        status: "pending",
+
+      const pendingStatus = {
+        status: 'pending',
         filename,
         timestamp: Date.now(),
-      });
+      };
+
+      await redisQueue.setItemStatus(id, pendingStatus);
+      await redisQueue.setItemStatus(filename, pendingStatus);
 
       await redisQueue.add({
+        id,
         filename,
         base64Content,
         originalName: file.name,
@@ -150,50 +153,18 @@ export async function POST(request: NextRequest) {
         origin,
       });
 
-      console.log(`[Upload API] File ${filename} queued. Waiting for batch processor...`);
-
-      // Polling Loop: Wait for status update from background processor
-      const startTime = Date.now();
-      const TIMEOUT = 45000; // 45 seconds timeout
-      const POLL_INTERVAL = 250; // 250ms polling
-
-      while (Date.now() - startTime < TIMEOUT) {
-        const status = await redisQueue.getItemStatus(filename);
-        
-        if (status && status.status === "success") {
-          return NextResponse.json({
-            success: true,
-            status: "success",
-            filename,
-            url: status.url,
-            urls: status.urls,
-            commit_sha: status.commit_sha,
-            size: file.size,
-            type: file.type,
-            mode: "batched",
-            note: "Successfully uploaded via high-concurrency batch commit",
-          });
-        }
-
-        if (status && status.status === "failed") {
-          return NextResponse.json(
-            { error: `Batch upload failed: ${status.error || "Unknown error"}` },
-            { status: 500 },
-          );
-        }
-
-        // Wait before next poll
-        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL));
-      }
-
-      return NextResponse.json(
-        { error: "Upload timed out while waiting for batch processing" },
-        { status: 504 },
-      );
+      console.log(`[Upload API] File ${filename} queued (id=${id}).`);
+      return NextResponse.json({
+        success: true,
+        message: 'Upload queued for batch processing',
+        status: 'pending',
+        id,
+        statusUrl: `${new URL(request.url).origin}/api/upload/status?id=${encodeURIComponent(id)}`,
+        mode: 'hybrid-dynamic',
+      }, { status: 202 });
     }
 
-    // Fallback: Perform direct upload immediately (one commit per upload).
-    // Used when Redis is not available or in serverless environment.
+    // Fallback (direct upload when queue not available): Perform direct upload
     const result = await directUpload(filename, base64Content, file.name);
 
     return NextResponse.json({

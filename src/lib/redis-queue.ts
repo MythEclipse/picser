@@ -248,17 +248,24 @@ export class RedisUploadQueue {
   }
 
   /**
-   * Status Tracking
+   * Status helper key by either id or filename
    */
-  async setItemStatus(filename: string, status: ItemStatus): Promise<void> {
+  private statusKey(identifier: string): string {
+    return `${STATUS_PREFIX}${identifier}`;
+  }
+
+  /**
+   * Status Tracking (accepts filename or id)
+   */
+  async setItemStatus(identifier: string, status: ItemStatus): Promise<void> {
     if (!this.enabled || !redis) return;
-    const key = `${STATUS_PREFIX}${filename}`;
+    const key = this.statusKey(identifier);
     await redis.setex(key, STATUS_EXPIRY, JSON.stringify(status));
   }
 
-  async getItemStatus(filename: string): Promise<ItemStatus | null> {
+  async getItemStatus(identifier: string): Promise<ItemStatus | null> {
     if (!this.enabled || !redis) return null;
-    const key = `${STATUS_PREFIX}${filename}`;
+    const key = this.statusKey(identifier);
     const data = await redis.get(key);
     if (!data) return null;
     try {
@@ -266,6 +273,17 @@ export class RedisUploadQueue {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Helper method, prefer explicit
+   */
+  async getStatusById(id: string): Promise<ItemStatus | null> {
+    return this.getItemStatus(id);
+  }
+
+  async getStatusByFilename(filename: string): Promise<ItemStatus | null> {
+    return this.getItemStatus(filename);
   }
 }
 

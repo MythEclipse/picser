@@ -37,6 +37,8 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
     const [isDragging, setIsDragging] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [uploadResult, setUploadResult] = useState<UploadResult | null>(null);
+    const [uploadId, setUploadId] = useState<string | null>(null);
+    const [uploadStatus, setUploadStatus] = useState<'pending' | 'success' | 'failed' | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [previewFile, setPreviewFile] = useState<PreviewFile | null>(null);
     const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
@@ -45,6 +47,8 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
         setUploading(true);
         setError(null);
         setUploadResult(null);
+        setUploadId(null);
+        setUploadStatus(null);
 
         // Create preview
         const previewUrl = URL.createObjectURL(file);
@@ -61,9 +65,51 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
 
             const result = await response.json();
 
+            if (response.status === 202 && result.id) {
+                setUploadId(result.id);
+                setUploadStatus('pending');
+
+                const startTime = Date.now();
+                const timeout = 45000;
+                const pollInterval = 500;
+
+                while (Date.now() - startTime < timeout) {
+                    const statusResponse = await fetch(`/api/upload/status?id=${encodeURIComponent(result.id)}`);
+                    const statusResult = await statusResponse.json();
+
+                    if (statusResponse.status === 202) {
+                        setUploadStatus('pending');
+                        await new Promise((resolve) => setTimeout(resolve, pollInterval));
+                        continue;
+                    }
+
+                    if (statusResponse.status === 200 && statusResult.status === 'success') {
+                        setUploadStatus('success');
+                        setUploadResult(statusResult);
+
+                        saveToHistory({
+                            filename: statusResult.filename || file.name,
+                            url: statusResult.urls?.jsdelivr_commit || statusResult.url || '',
+                            github_url: statusResult.urls?.github_commit || statusResult.github_url,
+                            size: file.size,
+                            type: file.type,
+                            urls: statusResult.urls,
+                        });
+
+                        onUpload?.();
+                        return;
+                    }
+
+                    throw new Error(statusResult.error || 'Upload failed in batch queue');
+                }
+
+                throw new Error('Upload timed out while waiting for queued processing');
+            }
+
             if (result.success) {
+                setUploadStatus('success');
                 setUploadResult(result);
-                // Save to history with jsDelivr CDN URL as primary
+
                 saveToHistory({
                     filename: result.filename,
                     url: result.urls?.jsdelivr_commit || result.url,
@@ -72,13 +118,15 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
                     type: result.type,
                     urls: result.urls,
                 });
-                // Notify parent component
+
                 onUpload?.();
             } else {
                 setError(result.error || 'Upload failed');
+                setUploadStatus('failed');
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Upload failed');
+            setUploadStatus('failed');
         } finally {
             setUploading(false);
         }
@@ -170,6 +218,17 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
                         <div className="flex items-center">
                             <AlertCircle className="h-5 w-5 text-red-500 mr-2" />
                             <p className="text-red-700 font-medium">{error}</p>
+                        </div>
+                    </div>
+                )}
+
+                {uploadStatus === 'pending' && uploadId && (
+                    <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                        <div className="flex items-center">
+                            <Zap className="h-5 w-5 text-blue-500 mr-2" />
+                            <p className="text-blue-700 font-medium">
+                                Queued for processing (id: {uploadId}). Polling for completion...
+                            </p>
                         </div>
                     </div>
                 )}
