@@ -112,12 +112,16 @@ export async function POST(request: NextRequest) {
     // Use commit SHA (not content SHA)
     const commitSha = response.data.commit.sha;
 
-    // Generate URL types (only branch-based - commit-based URLs may not work immediately)
+    // Generate URL types (both branch-based and commit-based)
     const urls = {
-      // Branch-based URLs (recommended)
+      // Branch-based URLs (recommended - immediate access)
       github: `https://github.com/${githubOwner}/${githubRepo}/blob/${githubBranch}/${filename}`,
       raw: `https://raw.githubusercontent.com/${githubOwner}/${githubRepo}/${githubBranch}/${filename}`,
       jsdelivr: `https://cdn.jsdelivr.net/gh/${githubOwner}/${githubRepo}@${githubBranch}/${filename}`,
+      // Commit-based URLs (permanent - fixed reference)
+      github_commit: `https://github.com/${githubOwner}/${githubRepo}/blob/${commitSha}/${filename}`,
+      raw_commit: `https://raw.githubusercontent.com/${githubOwner}/${githubRepo}/${commitSha}/${filename}`,
+      jsdelivr_commit: `https://cdn.jsdelivr.net/gh/${githubOwner}/${githubRepo}@${commitSha}/${filename}`,
     };
 
     // Verify file is accessible before returning URL

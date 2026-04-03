@@ -296,7 +296,7 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
                         </div>
 
                         {/* Primary CDN URL */}
-                        {uploadResult.urls?.jsdelivr_commit && (
+                        {uploadResult.urls?.jsdelivr && (
                             <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-200">
                                 <div className="flex items-center mb-3">
                                     <div className="flex items-center space-x-2">
@@ -306,20 +306,20 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
                                     <Star className="h-4 w-4 text-yellow-500 ml-2" />
                                 </div>
                                 <p className="text-sm text-blue-700 mb-4">
-                                    ⚡ Lightning fast global CDN • 🔒 Permanent commit-based URL • 📈 Heavy caching
+                                    ⚡ Lightning fast global CDN • 🔒 Branch-based permanent URL • 📈 Heavy caching
                                 </p>
                                 <div className="flex items-center space-x-3">
                                     <input
                                         type="text"
-                                        value={uploadResult.urls.jsdelivr_commit}
+                                        value={uploadResult.urls.jsdelivr}
                                         readOnly
                                         className="flex-1 px-4 py-3 border border-blue-300 rounded-lg text-sm bg-white/80 font-mono text-slate-800"
                                     />
                                     <button
-                                        onClick={() => copyToClipboard(uploadResult.urls!.jsdelivr_commit)}
+                                        onClick={() => copyToClipboard(uploadResult.urls!.jsdelivr)}
                                         className="flex items-center space-x-2 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
                                     >
-                                        {copiedUrl === uploadResult.urls.jsdelivr_commit ? (
+                                        {copiedUrl === uploadResult.urls.jsdelivr ? (
                                             <>
                                                 <CheckCircle className="h-4 w-4" />
                                                 <span>Copied!</span>
@@ -332,7 +332,7 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
                                         )}
                                     </button>
                                     <a
-                                        href={uploadResult.urls.jsdelivr_commit}
+                                        href={uploadResult.urls.jsdelivr}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="p-3 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-colors"
@@ -351,25 +351,25 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
                             </h4>
 
                             <div className="grid gap-4">
-                                {/* Raw GitHub URL (Commit-based) */}
-                                {uploadResult.urls?.raw_commit && (
+                                {/* Raw GitHub URL (Branch-based) */}
+                                {uploadResult.urls?.raw && (
                                     <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
                                         <div className="flex items-center justify-between mb-2">
-                                            <span className="text-sm font-medium text-slate-700">Raw GitHub URL (Permanent)</span>
-                                            <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">Permanent</span>
+                                            <span className="text-sm font-medium text-slate-700">Raw GitHub URL</span>
+                                            <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">Branch-based</span>
                                         </div>
                                         <div className="flex items-center space-x-2">
                                             <input
                                                 type="text"
-                                                value={uploadResult.urls.raw_commit}
+                                                value={uploadResult.urls.raw}
                                                 readOnly
                                                 className="flex-1 px-3 py-2 border text-amber-950 border-slate-300 rounded text-xs bg-white font-mono"
                                             />
                                             <button
-                                                onClick={() => copyToClipboard(uploadResult.urls!.raw_commit)}
+                                                onClick={() => copyToClipboard(uploadResult.urls!.raw)}
                                                 className="p-2 text-slate-500 hover:text-slate-700 transition-colors"
                                             >
-                                                {copiedUrl === uploadResult.urls.raw_commit ? (
+                                                {copiedUrl === uploadResult.urls.raw ? (
                                                     <CheckCircle className="h-4 w-4 text-green-600" />
                                                 ) : (
                                                     <Copy className="h-4 w-4" />
@@ -408,24 +408,24 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
                                 )}
 
                                 {/* GitHub URL */}
-                                {uploadResult.urls?.github_commit && (
+                                {uploadResult.urls?.github && (
                                     <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
                                         <div className="flex items-center justify-between mb-2">
                                             <span className="text-sm font-medium text-slate-700">GitHub Repository URL</span>
-                                            <span className="text-xs bg-slate-100 text-slate-700 px-2 py-1 rounded-full">Source</span>
+                                            <span className="text-xs bg-slate-100 text-slate-700 px-2 py-1 rounded-full">Web View</span>
                                         </div>
                                         <div className="flex items-center space-x-2">
                                             <input
                                                 type="text"
-                                                value={uploadResult.urls.github_commit}
+                                                value={uploadResult.urls.github}
                                                 readOnly
                                                 className="flex-1 px-3 py-2 border text-amber-950 border-slate-300 rounded text-xs bg-white font-mono"
                                             />
                                             <button
-                                                onClick={() => copyToClipboard(uploadResult.urls!.github_commit)}
+                                                onClick={() => copyToClipboard(uploadResult.urls!.github)}
                                                 className="p-2 text-slate-500 hover:text-slate-700 transition-colors"
                                             >
-                                                {copiedUrl === uploadResult.urls.github_commit ? (
+                                                {copiedUrl === uploadResult.urls.github ? (
                                                     <CheckCircle className="h-4 w-4 text-green-600" />
                                                 ) : (
                                                     <Copy className="h-4 w-4" />
@@ -434,6 +434,95 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
                                         </div>
                                     </div>
                                 )}
+
+                                {/* Permanent URLs Section */}
+                                <div className="border-t border-slate-300 pt-3 mt-3">
+                                    <p className="text-xs font-medium text-slate-600 mb-3">Permanent Commit-Based URLs</p>
+                                    
+                                    {/* Raw GitHub URL (Commit-based) */}
+                                    {uploadResult.urls?.raw_commit && (
+                                        <div className="bg-slate-50 rounded-lg p-4 border border-slate-200 mb-3">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <span className="text-sm font-medium text-slate-700">Raw GitHub URL (Permanent)</span>
+                                                <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">Permanent</span>
+                                            </div>
+                                            <div className="flex items-center space-x-2">
+                                                <input
+                                                    type="text"
+                                                    value={uploadResult.urls.raw_commit}
+                                                    readOnly
+                                                    className="flex-1 px-3 py-2 border text-amber-950 border-slate-300 rounded text-xs bg-white font-mono"
+                                                />
+                                                <button
+                                                    onClick={() => copyToClipboard(uploadResult.urls!.raw_commit)}
+                                                    className="p-2 text-slate-500 hover:text-slate-700 transition-colors"
+                                                >
+                                                    {copiedUrl === uploadResult.urls.raw_commit ? (
+                                                        <CheckCircle className="h-4 w-4 text-green-600" />
+                                                    ) : (
+                                                        <Copy className="h-4 w-4" />
+                                                    )}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* jsDelivr Commit URL */}
+                                    {uploadResult.urls?.jsdelivr_commit && (
+                                        <div className="bg-slate-50 rounded-lg p-4 border border-slate-200 mb-3">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <span className="text-sm font-medium text-slate-700">jsDelivr CDN (Permanent)</span>
+                                                <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">Permanent</span>
+                                            </div>
+                                            <div className="flex items-center space-x-2">
+                                                <input
+                                                    type="text"
+                                                    value={uploadResult.urls.jsdelivr_commit}
+                                                    readOnly
+                                                    className="flex-1 px-3 py-2 border text-amber-950 border-slate-300 rounded text-xs bg-white font-mono"
+                                                />
+                                                <button
+                                                    onClick={() => copyToClipboard(uploadResult.urls!.jsdelivr_commit)}
+                                                    className="p-2 text-slate-500 hover:text-slate-700 transition-colors"
+                                                >
+                                                    {copiedUrl === uploadResult.urls.jsdelivr_commit ? (
+                                                        <CheckCircle className="h-4 w-4 text-green-600" />
+                                                    ) : (
+                                                        <Copy className="h-4 w-4" />
+                                                    )}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* GitHub Commit URL */}
+                                    {uploadResult.urls?.github_commit && (
+                                        <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <span className="text-sm font-medium text-slate-700">GitHub Repository (Permanent)</span>
+                                                <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">Permanent</span>
+                                            </div>
+                                            <div className="flex items-center space-x-2">
+                                                <input
+                                                    type="text"
+                                                    value={uploadResult.urls.github_commit}
+                                                    readOnly
+                                                    className="flex-1 px-3 py-2 border text-amber-950 border-slate-300 rounded text-xs bg-white font-mono"
+                                                />
+                                                <button
+                                                    onClick={() => copyToClipboard(uploadResult.urls!.github_commit)}
+                                                    className="p-2 text-slate-500 hover:text-slate-700 transition-colors"
+                                                >
+                                                    {copiedUrl === uploadResult.urls.github_commit ? (
+                                                        <CheckCircle className="h-4 w-4 text-green-600" />
+                                                    ) : (
+                                                        <Copy className="h-4 w-4" />
+                                                    )}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
 

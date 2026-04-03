@@ -132,9 +132,9 @@ print(result)
             github: `https://github.com/${formData.githubOwner}/${formData.githubRepo}/blob/${formData.githubBranch}/${formData.folder}/image-1703123456789.png`,
             raw: `https://raw.githubusercontent.com/${formData.githubOwner}/${formData.githubRepo}/${formData.githubBranch}/${formData.folder}/image-1703123456789.png`,
             jsdelivr: `https://cdn.jsdelivr.net/gh/${formData.githubOwner}/${formData.githubRepo}@${formData.githubBranch}/${formData.folder}/image-1703123456789.png`,
-            github_commit: `https://github.com/${formData.githubOwner}/${formData.githubRepo}/blob/commit_sha/${formData.folder}/image-1703123456789.png`,
-            raw_commit: `https://raw.githubusercontent.com/${formData.githubOwner}/${formData.githubRepo}/commit_sha/${formData.folder}/image-1703123456789.png`,
-            jsdelivr_commit: `https://cdn.jsdelivr.net/gh/${formData.githubOwner}/${formData.githubRepo}@commit_sha/${formData.folder}/image-1703123456789.png`
+            github_commit: `https://github.com/${formData.githubOwner}/${formData.githubRepo}/blob/a1b2c3d4e5f6/${formData.folder}/image-1703123456789.png`,
+            raw_commit: `https://raw.githubusercontent.com/${formData.githubOwner}/${formData.githubRepo}/a1b2c3d4e5f6/${formData.folder}/image-1703123456789.png`,
+            jsdelivr_commit: `https://cdn.jsdelivr.net/gh/${formData.githubOwner}/${formData.githubRepo}@a1b2c3d4e5f6/${formData.folder}/image-1703123456789.png`
         },
         size: 142857,
         type: "image/png",
@@ -544,7 +544,7 @@ print(result)
                                 <div className="text-center">
                                     <div className="inline-block relative">
                                         <Image
-                                            src={playgroundResult.urls?.jsdelivr_commit || playgroundResult.url}
+                                            src={playgroundResult.urls?.jsdelivr || playgroundResult.url}
                                             alt="Uploaded image"
                                             width={300}
                                             height={200}
@@ -593,19 +593,19 @@ print(result)
                                                     <span className="bg-blue-600 text-white px-2 py-0.5 rounded-full text-xs">Fast</span>
                                                 </div>
                                                 <code className="text-sm text-blue-800 break-all">
-                                                    {playgroundResult.urls?.jsdelivr_commit || playgroundResult.url}
+                                                    {playgroundResult.urls?.jsdelivr || playgroundResult.url}
                                                 </code>
                                             </div>
                                             <button
-                                                onClick={() => copyPlaygroundUrl(playgroundResult.urls?.jsdelivr_commit || playgroundResult.url)}
+                                                onClick={() => copyPlaygroundUrl(playgroundResult.urls?.jsdelivr || playgroundResult.url)}
                                                 className="ml-4 flex items-center space-x-1 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
                                             >
-                                                {playgroundCopiedUrl === (playgroundResult.urls?.jsdelivr_commit || playgroundResult.url) ? (
+                                                {playgroundCopiedUrl === (playgroundResult.urls?.jsdelivr || playgroundResult.url) ? (
                                                     <CheckCircle className="h-4 w-4" />
                                                 ) : (
                                                     <Copy className="h-4 w-4" />
                                                 )}
-                                                <span>{playgroundCopiedUrl === (playgroundResult.urls?.jsdelivr_commit || playgroundResult.url) ? 'Copied!' : 'Copy'}</span>
+                                                <span>{playgroundCopiedUrl === (playgroundResult.urls?.jsdelivr || playgroundResult.url) ? 'Copied!' : 'Copy'}</span>
                                             </button>
                                         </div>
                                     </div>
@@ -618,14 +618,14 @@ print(result)
                                                     <div className="flex-1">
                                                         <span className="text-sm font-medium text-slate-700">GitHub Raw</span>
                                                         <code className="block text-xs text-slate-600 mt-1 break-all">
-                                                            {playgroundResult.urls.raw_commit}
+                                                            {playgroundResult.urls.raw}
                                                         </code>
                                                     </div>
                                                     <button
-                                                        onClick={() => copyPlaygroundUrl(playgroundResult.urls!.raw_commit)}
+                                                        onClick={() => copyPlaygroundUrl(playgroundResult.urls!.raw)}
                                                         className="ml-2 p-2 text-slate-600 hover:text-slate-900 transition-colors"
                                                     >
-                                                        {playgroundCopiedUrl === playgroundResult.urls.raw_commit ? (
+                                                        {playgroundCopiedUrl === playgroundResult.urls.raw ? (
                                                             <CheckCircle className="h-4 w-4" />
                                                         ) : (
                                                             <Copy className="h-4 w-4" />
@@ -638,20 +638,94 @@ print(result)
                                                     <div className="flex-1">
                                                         <span className="text-sm font-medium text-slate-700">GitHub Page</span>
                                                         <code className="block text-xs text-slate-600 mt-1 break-all">
-                                                            {playgroundResult.urls.github_commit}
+                                                            {playgroundResult.urls.github}
                                                         </code>
                                                     </div>
                                                     <button
-                                                        onClick={() => copyPlaygroundUrl(playgroundResult.urls!.github_commit)}
+                                                        onClick={() => copyPlaygroundUrl(playgroundResult.urls!.github)}
                                                         className="ml-2 p-2 text-slate-600 hover:text-slate-900 transition-colors"
                                                     >
-                                                        {playgroundCopiedUrl === playgroundResult.urls.github_commit ? (
+                                                        {playgroundCopiedUrl === playgroundResult.urls.github ? (
                                                             <CheckCircle className="h-4 w-4" />
                                                         ) : (
                                                             <Copy className="h-4 w-4" />
                                                         )}
                                                     </button>
                                                 </div>
+                                            </div>
+
+                                            {/* Permanent (Commit-based) URLs */}
+                                            <div className="border-t border-slate-200 pt-3 mt-3">
+                                                <p className="text-xs font-medium text-slate-600 mb-3">Permanent Commit-Based URLs</p>
+                                                
+                                                {playgroundResult.urls.raw_commit && (
+                                                    <div className="bg-slate-50 rounded-lg p-3 mb-3">
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="flex-1">
+                                                                <span className="text-sm font-medium text-slate-700">GitHub Raw (Permanent)</span>
+                                                                <code className="block text-xs text-slate-600 mt-1 break-all">
+                                                                    {playgroundResult.urls.raw_commit}
+                                                                </code>
+                                                            </div>
+                                                            <button
+                                                                onClick={() => copyPlaygroundUrl(playgroundResult.urls!.raw_commit)}
+                                                                className="ml-2 p-2 text-slate-600 hover:text-slate-900 transition-colors"
+                                                            >
+                                                                {playgroundCopiedUrl === playgroundResult.urls.raw_commit ? (
+                                                                    <CheckCircle className="h-4 w-4" />
+                                                                ) : (
+                                                                    <Copy className="h-4 w-4" />
+                                                                )}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {playgroundResult.urls.jsdelivr_commit && (
+                                                    <div className="bg-slate-50 rounded-lg p-3 mb-3">
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="flex-1">
+                                                                <span className="text-sm font-medium text-slate-700">jsDelivr CDN (Permanent)</span>
+                                                                <code className="block text-xs text-slate-600 mt-1 break-all">
+                                                                    {playgroundResult.urls.jsdelivr_commit}
+                                                                </code>
+                                                            </div>
+                                                            <button
+                                                                onClick={() => copyPlaygroundUrl(playgroundResult.urls!.jsdelivr_commit)}
+                                                                className="ml-2 p-2 text-slate-600 hover:text-slate-900 transition-colors"
+                                                            >
+                                                                {playgroundCopiedUrl === playgroundResult.urls.jsdelivr_commit ? (
+                                                                    <CheckCircle className="h-4 w-4" />
+                                                                ) : (
+                                                                    <Copy className="h-4 w-4" />
+                                                                )}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {playgroundResult.urls.github_commit && (
+                                                    <div className="bg-slate-50 rounded-lg p-3">
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="flex-1">
+                                                                <span className="text-sm font-medium text-slate-700">GitHub Page (Permanent)</span>
+                                                                <code className="block text-xs text-slate-600 mt-1 break-all">
+                                                                    {playgroundResult.urls.github_commit}
+                                                                </code>
+                                                            </div>
+                                                            <button
+                                                                onClick={() => copyPlaygroundUrl(playgroundResult.urls!.github_commit)}
+                                                                className="ml-2 p-2 text-slate-600 hover:text-slate-900 transition-colors"
+                                                            >
+                                                                {playgroundCopiedUrl === playgroundResult.urls.github_commit ? (
+                                                                    <CheckCircle className="h-4 w-4" />
+                                                                ) : (
+                                                                    <Copy className="h-4 w-4" />
+                                                                )}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     )}
