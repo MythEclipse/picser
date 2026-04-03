@@ -30,7 +30,7 @@ async function directUploadSingleToGithub(
   const commitSha = response?.data?.content?.sha ?? response?.data?.commit?.sha;
   return commitSha;
 }
-export const BATCH_TIMEOUT = 1000; // 1 second
+export const BATCH_TIMEOUT = 2000; // 2 seconds - anti-burst batching
 
 export interface QueueProcessResult {
   processed: boolean;

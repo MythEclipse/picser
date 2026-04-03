@@ -131,28 +131,19 @@ export async function POST(request: NextRequest) {
     const queued = redisQueue.isEnabled() && !isServerless;
 
     if (queued) {
-      // Queue-based: Return instant CDN URL optimistically, process in background
+      // Queue-based: Wait for batch processor, verify CDN access before responding (NOT optimistic)
       const id = crypto.randomUUID();
       const owner = process.env.GITHUB_OWNER!;
       const repo = process.env.GITHUB_REPO!;
       const branch = process.env.GITHUB_BRANCH || "main";
       
-      // Generate optimistic CDN URLs (will be available once batch processor completes)
-      const optimisticUrl = `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${branch}/${filename}`;
-      const optimisticUrls = {
-        github: `https://github.com/${owner}/${repo}/blob/${branch}/${filename}`,
-        raw: `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filename}`,
-        jsdelivr: optimisticUrl,
-      };
-
       const pendingStatus = {
         status: 'pending' as const,
         filename,
-        url: optimisticUrl,
         timestamp: Date.now(),
       };
 
-      // Store pending status for polling
+      // Store pending status
       await redisQueue.setItemStatus(id, pendingStatus);
       await redisQueue.setItemStatus(filename, pendingStatus);
 
@@ -170,22 +161,75 @@ export async function POST(request: NextRequest) {
           attempts: 0,
         });
         
-        logger.info(`[Upload API] File ${filename} queued (id=${id}). Returning optimistic CDN URL.`);
+        logger.info(`[Upload API] File ${filename} queued (id=${id}). Waiting for batch processor...`);
         
-        // Return 200 OK with instant CDN URL (optimistic response)
-        // Actual confirmation happens in background queue processor
+        // Wait for batch processor to complete + verify CDN access
+        const maxWaitTime = 30000; // 30 second timeout
+        const pollInterval = 500; // Check every 500ms
+        const startTime = Date.now();
+        let finalStatus = null;
+        
+        while (Date.now() - startTime < maxWaitTime) {
+          // Check if status changed from pending to success
+          const currentStatus = await redisQueue.getStatusById(id);
+          
+          if (currentStatus?.status === 'success' && currentStatus.urls) {
+            // Try to verify CDN access
+            const cdnUrl = currentStatus.urls.jsdelivr;
+            if (cdnUrl) {
+              const isAccessible = await verifyFileAccessible(cdnUrl, 5, 200).catch(() => false);
+              
+              if (isAccessible) {
+                finalStatus = currentStatus;
+                logger.info(`[Upload API] File ${filename} verified accessible on CDN`);
+                break;
+              }
+            }
+          }
+          
+          if (currentStatus?.status === 'failed') {
+            logger.error(`[Upload API] File ${filename} failed to upload: ${currentStatus.error}`);
+            return NextResponse.json(
+              { error: `Upload failed: ${currentStatus.error}` },
+              { status: 500 }
+            );
+          }
+          
+          // Wait before next poll
+          await new Promise(resolve => setTimeout(resolve, pollInterval));
+        }
+        
+        // If we have a verified status, return it
+        if (finalStatus && finalStatus.urls) {
+          logger.info(`[Upload API] Returning verified CDN URL for ${filename}`);
+          return NextResponse.json({
+            success: true,
+            id,
+            filename,
+            urls: finalStatus.urls,
+            url: finalStatus.urls.jsdelivr || finalStatus.url,
+            commit_sha: finalStatus.commit_sha,
+            size: file.size,
+            type: file.type,
+            mode: "queued-batch-verified",
+            note: "Upload completed and verified on CDN",
+          }, { status: 200 });
+        }
+        
+        // Timeout - file still processing or not yet accessible
+        logger.warn(`[Upload API] Timeout waiting for ${filename}. File may still be processing.`);
         return NextResponse.json({
           success: true,
           id,
           filename,
-          urls: optimisticUrls,
-          url: optimisticUrl,
+          url: `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${branch}/${filename}`,
           size: file.size,
           type: file.type,
-          mode: "queued-batch",
-          note: "Upload queued for batch processing. CDN URL available optimistically; check status endpoint if issues.",
+          mode: "queued-batch-timeout",
+          note: "Upload in progress. CDN URL may take a few more seconds to be accessible.",
           statusUrl: `${new URL(request.url).origin}/api/upload/status?id=${encodeURIComponent(id)}`,
-        }, { status: 200 }); // 200 OK - user gets instant URL
+        }, { status: 202 }); // 202 Accepted - still processing
+        
       } catch (queueError) {
         if (queueError instanceof Error && queueError.message.includes("queue is full")) {
           return NextResponse.json({ error: queueError.message }, { status: 429 });
