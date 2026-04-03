@@ -126,24 +126,38 @@ export async function POST(request: NextRequest) {
     const suffix = crypto.randomUUID().slice(0, 8);
     const filename = `uploads/${hash}-${suffix}.${extension}`;
 
-    // Auto-detect serverless/edge environment
+    // Determine if we should queue or do direct upload
     const isServerless = isServerlessEnvironment();
     const queued = redisQueue.isEnabled() && !isServerless;
 
     if (queued) {
+      // Queue-based: Return instant CDN URL optimistically, process in background
       const id = crypto.randomUUID();
-      const origin = new URL(request.url).origin;
+      const owner = process.env.GITHUB_OWNER!;
+      const repo = process.env.GITHUB_REPO!;
+      const branch = process.env.GITHUB_BRANCH || "main";
+      
+      // Generate optimistic CDN URLs (will be available once batch processor completes)
+      const optimisticUrl = `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${branch}/${filename}`;
+      const optimisticUrls = {
+        github: `https://github.com/${owner}/${repo}/blob/${branch}/${filename}`,
+        raw: `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filename}`,
+        jsdelivr: optimisticUrl,
+      };
 
       const pendingStatus = {
         status: 'pending' as const,
         filename,
+        url: optimisticUrl,
         timestamp: Date.now(),
       };
 
+      // Store pending status for polling
       await redisQueue.setItemStatus(id, pendingStatus);
       await redisQueue.setItemStatus(filename, pendingStatus);
 
       try {
+        // Queue the upload for batch processing
         await redisQueue.add({
           id,
           filename,
@@ -152,39 +166,45 @@ export async function POST(request: NextRequest) {
           size: file.size,
           type: file.type,
           timestamp: Date.now(),
-          origin,
+          origin: new URL(request.url).origin,
           attempts: 0,
         });
+        
+        logger.info(`[Upload API] File ${filename} queued (id=${id}). Returning optimistic CDN URL.`);
+        
+        // Return 200 OK with instant CDN URL (optimistic response)
+        // Actual confirmation happens in background queue processor
+        return NextResponse.json({
+          success: true,
+          id,
+          filename,
+          urls: optimisticUrls,
+          url: optimisticUrl,
+          size: file.size,
+          type: file.type,
+          mode: "queued-batch",
+          note: "Upload queued for batch processing. CDN URL available optimistically; check status endpoint if issues.",
+          statusUrl: `${new URL(request.url).origin}/api/upload/status?id=${encodeURIComponent(id)}`,
+        }, { status: 200 }); // 200 OK - user gets instant URL
       } catch (queueError) {
         if (queueError instanceof Error && queueError.message.includes("queue is full")) {
           return NextResponse.json({ error: queueError.message }, { status: 429 });
         }
-        throw queueError;
+        // Fall through to direct upload on queue error
+        logger.warn(`[Upload API] Queue add failed for ${filename}, falling back to direct upload`, queueError);
       }
-
-      logger.info(`[Upload API] File ${filename} queued (id=${id}).`);
-      return NextResponse.json({
-        success: true,
-        message: 'Upload queued for batch processing',
-        status: 'pending',
-        id,
-        statusUrl: `${new URL(request.url).origin}/api/upload/status?id=${encodeURIComponent(id)}`,
-        mode: 'hybrid-dynamic',
-      }, { status: 202 });
     }
 
-    // Fallback (direct upload when queue not available): Perform direct upload
-    logger.info(`[Upload API] Redis queue not available for file ${filename}, using direct upload`);
+    // Fallback: Direct upload (serverless or queue unavailable)
+    logger.info(`[Upload API] Using direct upload for file ${filename} (serverless=${isServerless}, queued=${queued})`);
     const result = await directUpload(filename, base64Content, file.name);
 
     // Verify file is accessible before returning URL
-    // For direct upload (no Redis), do quick verification (fewer retries) to avoid blocking user
     logger.info(`[Upload API] Verifying direct uploaded file ${filename} is accessible`);
-    const isAccessible = await verifyFileAccessible(result.urls.jsdelivr, 7, 300); // Quick verification: 7 attempts, 300ms initial
+    const isAccessible = await verifyFileAccessible(result.urls.jsdelivr, 7, 300);
     
     if (!isAccessible) {
       logger.warn(`[Upload API] File ${filename} uploaded but not immediately accessible, returning anyway`);
-      // Still return the result - user can retry if needed
     } else {
       logger.info(`[Upload API] File ${filename} verified accessible, returning URLs`);
     }
@@ -194,9 +214,9 @@ export async function POST(request: NextRequest) {
       size: file.size,
       type: file.type,
       mode: "direct",
-      note: "Uploaded directly (Bypassed batching)",
+      note: "Uploaded directly (no batch queue)",
       url: result.urls.jsdelivr,
-    });
+    }, { status: 200 });
   } catch (error) {
     logger.error("Upload error:", error);
 
@@ -216,20 +236,21 @@ export async function POST(request: NextRequest) {
 
 export async function GET() {
   const redisEnabled = redisQueue.isEnabled();
+  const isServerless = isServerlessEnvironment();
 
   return NextResponse.json({
     message: "Image upload API endpoint",
     methods: ["POST", "DELETE"],
     maxFileSize: "100MB",
     allowedTypes: ["image/*"],
-    mode: redisEnabled ? "batched-sync" : "direct",
+    mode: redisEnabled && !isServerless ? "queued-batch" : "direct",
     redis: {
       enabled: redisEnabled,
-      status: redisEnabled ? "Wait-for-Batching active" : "Direct upload mode",
+      status: redisEnabled && !isServerless ? "Batch processing enabled" : "Queue disabled or serverless",
     },
-    note: redisEnabled 
-      ? "Uploads are batched every second for performance, but users wait for confirmation." 
-      : "All uploads are processed synchronously to ensure immediate URL availability",
+    note: redisEnabled && !isServerless
+      ? "Uploads return instant CDN URL (200 OK) and are batch-processed. Multiple uploads are queued to prevent Git conflicts."
+      : "Direct upload mode - no batch processing",
   });
 }
 
