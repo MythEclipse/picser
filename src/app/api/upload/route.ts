@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { redisQueue } from "@/lib/redis-queue";
 import { verifyFileAccessible } from "@/lib/file-verification";
 import crypto from "crypto";
 import { Octokit } from "@octokit/rest";
 import { validateImage } from "@/lib/image-validation";
-import { isServerlessEnvironment } from "@/lib/environment";
 import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
@@ -126,121 +124,7 @@ export async function POST(request: NextRequest) {
     const suffix = crypto.randomUUID().slice(0, 8);
     const filename = `uploads/${hash}-${suffix}.${extension}`;
 
-    // Determine if we should queue or do direct upload
-    const isServerless = isServerlessEnvironment();
-    const queued = redisQueue.isEnabled() && !isServerless;
-
-    if (queued) {
-      // Queue-based: Wait for batch processor, verify CDN access before responding (NOT optimistic)
-      const id = crypto.randomUUID();
-      const owner = process.env.GITHUB_OWNER!;
-      const repo = process.env.GITHUB_REPO!;
-      const branch = process.env.GITHUB_BRANCH || "main";
-      
-      const pendingStatus = {
-        status: 'pending' as const,
-        filename,
-        timestamp: Date.now(),
-      };
-
-      // Store pending status
-      await redisQueue.setItemStatus(id, pendingStatus);
-      await redisQueue.setItemStatus(filename, pendingStatus);
-
-      try {
-        // Queue the upload for batch processing
-        await redisQueue.add({
-          id,
-          filename,
-          base64Content,
-          originalName: file.name,
-          size: file.size,
-          type: file.type,
-          timestamp: Date.now(),
-          origin: new URL(request.url).origin,
-          attempts: 0,
-        });
-        
-        logger.info(`[Upload API] File ${filename} queued (id=${id}). Waiting for batch processor...`);
-        
-        // Wait for batch processor to complete + verify CDN access
-        const maxWaitTime = 30000; // 30 second timeout
-        const pollInterval = 500; // Check every 500ms
-        const startTime = Date.now();
-        let finalStatus = null;
-        
-        while (Date.now() - startTime < maxWaitTime) {
-          // Check if status changed from pending to success
-          const currentStatus = await redisQueue.getStatusById(id);
-          
-          if (currentStatus?.status === 'success' && currentStatus.urls) {
-            // Try to verify CDN access
-            const cdnUrl = currentStatus.urls.jsdelivr;
-            if (cdnUrl) {
-              const isAccessible = await verifyFileAccessible(cdnUrl, 5, 200).catch(() => false);
-              
-              if (isAccessible) {
-                finalStatus = currentStatus;
-                logger.info(`[Upload API] File ${filename} verified accessible on CDN`);
-                break;
-              }
-            }
-          }
-          
-          if (currentStatus?.status === 'failed') {
-            logger.error(`[Upload API] File ${filename} failed to upload: ${currentStatus.error}`);
-            return NextResponse.json(
-              { error: `Upload failed: ${currentStatus.error}` },
-              { status: 500 }
-            );
-          }
-          
-          // Wait before next poll
-          await new Promise(resolve => setTimeout(resolve, pollInterval));
-        }
-        
-        // If we have a verified status, return it
-        if (finalStatus && finalStatus.urls) {
-          logger.info(`[Upload API] Returning verified CDN URL for ${filename}`);
-          return NextResponse.json({
-            success: true,
-            id,
-            filename,
-            urls: finalStatus.urls,
-            url: finalStatus.urls.jsdelivr || finalStatus.url,
-            commit_sha: finalStatus.commit_sha,
-            size: file.size,
-            type: file.type,
-            mode: "queued-batch-verified",
-            note: "Upload completed and verified on CDN",
-          }, { status: 200 });
-        }
-        
-        // Timeout - file still processing or not yet accessible
-        logger.warn(`[Upload API] Timeout waiting for ${filename}. File may still be processing.`);
-        return NextResponse.json({
-          success: true,
-          id,
-          filename,
-          url: `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${branch}/${filename}`,
-          size: file.size,
-          type: file.type,
-          mode: "queued-batch-timeout",
-          note: "Upload in progress. CDN URL may take a few more seconds to be accessible.",
-          statusUrl: `${new URL(request.url).origin}/api/upload/status?id=${encodeURIComponent(id)}`,
-        }, { status: 202 }); // 202 Accepted - still processing
-        
-      } catch (queueError) {
-        if (queueError instanceof Error && queueError.message.includes("queue is full")) {
-          return NextResponse.json({ error: queueError.message }, { status: 429 });
-        }
-        // Fall through to direct upload on queue error
-        logger.warn(`[Upload API] Queue add failed for ${filename}, falling back to direct upload`, queueError);
-      }
-    }
-
-    // Fallback: Direct upload (serverless or queue unavailable)
-    logger.info(`[Upload API] Using direct upload for file ${filename} (serverless=${isServerless}, queued=${queued})`);
+    logger.info(`[Upload API] Using direct upload for file ${filename}`);
     const result = await directUpload(filename, base64Content, file.name);
 
     // Verify file is accessible before returning URL
@@ -258,8 +142,9 @@ export async function POST(request: NextRequest) {
       size: file.size,
       type: file.type,
       mode: "direct",
-      note: "Uploaded directly (no batch queue)",
+      note: "Uploaded directly to GitHub",
       url: result.urls.jsdelivr,
+      github_url: result.urls.github,
     }, { status: 200 });
   } catch (error) {
     logger.error("Upload error:", error);
@@ -279,22 +164,13 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET() {
-  const redisEnabled = redisQueue.isEnabled();
-  const isServerless = isServerlessEnvironment();
-
   return NextResponse.json({
     message: "Image upload API endpoint",
     methods: ["POST", "DELETE"],
     maxFileSize: "100MB",
     allowedTypes: ["image/*"],
-    mode: redisEnabled && !isServerless ? "queued-batch" : "direct",
-    redis: {
-      enabled: redisEnabled,
-      status: redisEnabled && !isServerless ? "Batch processing enabled" : "Queue disabled or serverless",
-    },
-    note: redisEnabled && !isServerless
-      ? "Uploads return instant CDN URL (200 OK) and are batch-processed. Multiple uploads are queued to prevent Git conflicts."
-      : "Direct upload mode - no batch processing",
+    mode: "direct",
+    note: "Uploads are sent directly to GitHub and return CDN URLs immediately",
   });
 }
 

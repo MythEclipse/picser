@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import Image from 'next/image';
-import { Upload, Copy, ExternalLink, CheckCircle, AlertCircle, Zap, Star, Link as LinkIcon } from 'lucide-react';
+import { Upload, Copy, ExternalLink, CheckCircle, AlertCircle, Star, Link as LinkIcon } from 'lucide-react';
 import { saveToHistory } from '@/utils/storage';
 
 interface UploadResult {
@@ -37,8 +37,6 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
     const [isDragging, setIsDragging] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [uploadResult, setUploadResult] = useState<UploadResult | null>(null);
-    const [uploadId, setUploadId] = useState<string | null>(null);
-    const [uploadStatus, setUploadStatus] = useState<'pending' | 'success' | 'failed' | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [previewFile, setPreviewFile] = useState<PreviewFile | null>(null);
     const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
@@ -47,8 +45,6 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
         setUploading(true);
         setError(null);
         setUploadResult(null);
-        setUploadId(null);
-        setUploadStatus(null);
 
         // Create preview
         const previewUrl = URL.createObjectURL(file);
@@ -65,65 +61,7 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
 
             const result = await response.json();
 
-            if (response.status === 202 && result.id) {
-                setUploadId(result.id);
-                setUploadStatus('pending');
-
-                const startTime = Date.now();
-                const timeout = 120000; // 2 minutes
-                let attempt = 0;
-
-                while (Date.now() - startTime < timeout) {
-                    const statusResponse = await fetch(`/api/upload/status?id=${encodeURIComponent(result.id)}`);
-                    const statusResult = await statusResponse.json();
-
-                    if (statusResponse.status === 202) {
-                        setUploadStatus('pending');
-                        const delay = Math.min(2000, 250 + attempt * 200);
-                        await new Promise((resolve) => setTimeout(resolve, delay));
-                        attempt += 1;
-                        continue;
-                    }
-
-                    if (statusResponse.status === 200 && statusResult.status === 'success') {
-                        setUploadStatus('success');
-                        setUploadResult(statusResult);
-
-                        saveToHistory({
-                            filename: statusResult.filename || file.name,
-                            url: statusResult.urls?.jsdelivr || statusResult.url || '',
-                            github_url: statusResult.urls?.github || statusResult.github_url,
-                            size: file.size,
-                            type: file.type,
-                            urls: statusResult.urls,
-                        });
-
-                        onUpload?.();
-                        return;
-                    }
-
-                    if (statusResponse.status === 404) {
-                        if (attempt < 5) {
-                            const delay = Math.min(1000, 250 + attempt * 150);
-                            await new Promise((resolve) => setTimeout(resolve, delay));
-                            attempt += 1;
-                            continue;
-                        }
-                        throw new Error('Upload status not found after retries.');
-                    }
-
-                    if (statusResponse.status === 500) {
-                        throw new Error(statusResult.error || 'Upload failed in batch processing');
-                    }
-
-                    throw new Error('Unexpected status response for upload progress');
-                }
-
-                throw new Error('Upload timed out while waiting for queued processing');
-            }
-
-            if (result.success) {
-                setUploadStatus('success');
+            if (response.ok && result.success) {
                 setUploadResult(result);
 
                 saveToHistory({
@@ -138,11 +76,9 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
                 onUpload?.();
             } else {
                 setError(result.error || 'Upload failed');
-                setUploadStatus('failed');
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Upload failed');
-            setUploadStatus('failed');
         } finally {
             setUploading(false);
         }
@@ -205,8 +141,6 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
         setUploadResult(null);
         setError(null);
         setPreviewFile(null);
-        setUploadId(null);
-        setUploadStatus(null);
         setCopiedUrl(null);
     };
 
@@ -239,7 +173,7 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
                         Upload Your Images
                     </h1>
                     <p className="text-slate-600 text-lg">
-                        Get instant CDN URLs via jsDelivr with global caching and permanent links
+                        Upload directly to GitHub and get instant CDN URLs via jsDelivr
                     </p>
                 </div>
 
@@ -248,17 +182,6 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
                         <div className="flex items-center">
                             <AlertCircle className="h-5 w-5 text-red-500 mr-2" />
                             <p className="text-red-700 font-medium">{error}</p>
-                        </div>
-                    </div>
-                )}
-
-                {uploadStatus === 'pending' && uploadId && (
-                    <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
-                        <div className="flex items-center">
-                            <Zap className="h-5 w-5 text-blue-500 mr-2" />
-                            <p className="text-blue-700 font-medium">
-                                Queued for processing (id: {uploadId}). Polling for completion...
-                            </p>
                         </div>
                     </div>
                 )}
@@ -300,7 +223,7 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
                             <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-200">
                                 <div className="flex items-center mb-3">
                                     <div className="flex items-center space-x-2">
-                                        <Zap className="h-5 w-5 text-blue-600" />
+                                        <Star className="h-5 w-5 text-blue-600" />
                                         <h4 className="font-semibold text-blue-900">Recommended: jsDelivr CDN URL</h4>
                                     </div>
                                     <Star className="h-4 w-4 text-yellow-500 ml-2" />
@@ -601,7 +524,7 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
 
                                 <div className="flex items-center justify-center space-x-6 text-sm text-slate-500">
                                     <div className="flex items-center space-x-1">
-                                        <Zap className="h-4 w-4" />
+                                        <Star className="h-4 w-4" />
                                         <span>CDN Powered</span>
                                     </div>
                                     <div className="flex items-center space-x-1">
