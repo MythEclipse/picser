@@ -109,19 +109,15 @@ export async function POST(request: NextRequest) {
       throw new Error("Failed to upload after retries");
     }
 
+    // Use commit SHA (not content SHA)
     const commitSha = response.data.commit.sha;
 
-    // Generate all URL types
+    // Generate URL types (only branch-based - commit-based URLs may not work immediately)
     const urls = {
-      // Branch-based URLs
+      // Branch-based URLs (recommended)
       github: `https://github.com/${githubOwner}/${githubRepo}/blob/${githubBranch}/${filename}`,
       raw: `https://raw.githubusercontent.com/${githubOwner}/${githubRepo}/${githubBranch}/${filename}`,
       jsdelivr: `https://cdn.jsdelivr.net/gh/${githubOwner}/${githubRepo}@${githubBranch}/${filename}`,
-
-      // Commit-based URLs (permanent)
-      github_commit: `https://github.com/${githubOwner}/${githubRepo}/blob/${commitSha}/${filename}`,
-      raw_commit: `https://raw.githubusercontent.com/${githubOwner}/${githubRepo}/${commitSha}/${filename}`,
-      jsdelivr_commit: `https://cdn.jsdelivr.net/gh/${githubOwner}/${githubRepo}@${commitSha}/${filename}`,
     };
 
     // Verify file is accessible before returning URL

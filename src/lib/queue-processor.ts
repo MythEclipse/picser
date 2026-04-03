@@ -263,9 +263,6 @@ export async function processQueue(): Promise<QueueProcessResult> {
             github: `https://github.com/${owner}/${repo}/blob/${branch}/${item.filename}`,
             raw: `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${item.filename}`,
             jsdelivr: `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${branch}/${item.filename}`,
-            github_commit: `https://github.com/${owner}/${repo}/blob/${itemCommitSha}/${item.filename}`,
-            raw_commit: `https://raw.githubusercontent.com/${owner}/${repo}/${itemCommitSha}/${item.filename}`,
-            jsdelivr_commit: `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${itemCommitSha}/${item.filename}`,
           };
 
           const statusPayload: ItemStatus = {
@@ -341,9 +338,6 @@ export async function processQueue(): Promise<QueueProcessResult> {
         github: `https://github.com/${owner}/${repo}/blob/${branch}/${item.filename}`,
         raw: `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${item.filename}`,
         jsdelivr: `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${branch}/${item.filename}`,
-        github_commit: `https://github.com/${owner}/${repo}/blob/${finalCommitSha}/${item.filename}`,
-        raw_commit: `https://raw.githubusercontent.com/${owner}/${repo}/${finalCommitSha}/${item.filename}`,
-        jsdelivr_commit: `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${finalCommitSha}/${item.filename}`,
       };
 
       const statusPayload: ItemStatus = {

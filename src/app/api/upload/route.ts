@@ -57,25 +57,19 @@ async function directUpload(
 
   if (!response) throw new Error("Failed to upload after retries");
 
-  const commitSha = response?.data?.content?.sha ?? response?.data?.commit?.sha;
-  const contentSha = response?.data?.content?.sha;
+  // Use commit SHA (not content SHA)
+  const commitSha = response.data.commit.sha;
 
   return {
     success: true,
     filename,
     urls: {
-      // Branch-based URLs
+      // Branch-based URLs (recommended)
       github: `https://github.com/${owner}/${repo}/blob/${branch}/${filename}`,
       raw: `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filename}`,
       jsdelivr: `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${branch}/${filename}`,
-
-      // Commit-based URLs (permanent)
-      github_commit: `https://github.com/${owner}/${repo}/blob/${commitSha}/${filename}`,
-      raw_commit: `https://raw.githubusercontent.com/${owner}/${repo}/${commitSha}/${filename}`,
-      jsdelivr_commit: `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${commitSha}/${filename}`,
     },
     commit_sha: commitSha,
-    content_sha: contentSha,
   };
 }
 

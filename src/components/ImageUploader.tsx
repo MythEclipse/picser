@@ -91,8 +91,8 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
 
                         saveToHistory({
                             filename: statusResult.filename || file.name,
-                            url: statusResult.urls?.jsdelivr || statusResult.urls?.raw || statusResult.url || '',
-                            github_url: statusResult.urls?.github || statusResult.urls?.github_commit || statusResult.github_url,
+                            url: statusResult.urls?.jsdelivr || statusResult.url || '',
+                            github_url: statusResult.urls?.github || statusResult.github_url,
                             size: file.size,
                             type: file.type,
                             urls: statusResult.urls,
@@ -128,7 +128,7 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
 
                 saveToHistory({
                     filename: result.filename,
-                    url: result.urls?.jsdelivr_commit || result.url,
+                    url: result.urls?.jsdelivr || result.url,
                     github_url: result.github_url,
                     size: result.size,
                     type: result.type,
@@ -278,7 +278,7 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
                         <div className="text-center">
                             <div className="inline-block relative">
                                 <Image
-                                    src={uploadResult.urls?.jsdelivr_commit || uploadResult.url}
+                                    src={uploadResult.urls?.jsdelivr || uploadResult.url}
                                     alt="Uploaded image"
                                     width={300}
                                     height={200}

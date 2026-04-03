@@ -57,10 +57,8 @@ export default function UploadHistoryComponent({ onNewUpload }: UploadHistoryPro
 
     // Get the best URL for display (prioritize jsDelivr CDN)
     const getBestUrl = (upload: UploadHistory) => {
-        if (upload.urls?.jsdelivr_commit) return upload.urls.jsdelivr_commit;
         if (upload.urls?.jsdelivr) return upload.urls.jsdelivr;
         if (upload.raw_url) return upload.raw_url; // Handle legacy field
-        // Fallback to filename if URL not found (shouldn't happen with correct API)
         return upload.url || '';
     };
 
@@ -96,7 +94,6 @@ export default function UploadHistoryComponent({ onNewUpload }: UploadHistoryPro
                     {history.map((upload) => {
                         const bestUrl = getBestUrl(upload);
                         const isCDN = bestUrl ? bestUrl.includes('jsdelivr.net') : false;
-                        const isPermanent = upload.urls?.jsdelivr_commit || upload.urls?.raw_commit;
 
                         return (
                             <div
@@ -121,15 +118,6 @@ export default function UploadHistoryComponent({ onNewUpload }: UploadHistoryPro
                                             </div>
                                         )}
                                     </div>
-                                    {/* Permanent Badge */}
-                                    {isPermanent && (
-                                        <div className="absolute top-2 left-2">
-                                            <div className="flex items-center space-x-1 bg-green-500 text-white px-2 py-1 rounded-full text-xs font-medium">
-                                                <Star className="h-3 w-3" />
-                                                <span>Permanent</span>
-                                            </div>
-                                        </div>
-                                    )}
                                 </div>
 
                                 {/* Content */}
@@ -146,23 +134,23 @@ export default function UploadHistoryComponent({ onNewUpload }: UploadHistoryPro
                                     </div>
 
                                     {/* Primary URL (jsDelivr CDN preferred) */}
-                                    {upload.urls?.jsdelivr_commit && (
+                                    {upload.urls?.jsdelivr && (
                                         <div className="space-y-2">
                                             <div className="flex items-center justify-between">
                                                 <span className="text-xs font-medium text-blue-700 flex items-center space-x-1">
                                                     <Zap className="h-3 w-3" />
-                                                    <span>jsDelivr CDN (Permanent)</span>
+                                                    <span>jsDelivr CDN</span>
                                                 </span>
                                             </div>
                                             <div className="flex items-center space-x-2">
                                                 <input
                                                     type="text"
-                                                    value={upload.urls.jsdelivr_commit}
+                                                    value={upload.urls.jsdelivr}
                                                     readOnly
                                                     className="flex-1 px-2 py-1.5 border border-slate-200 rounded-lg text-xs bg-slate-50 font-mono text-slate-700"
                                                 />
                                                 <button
-                                                    onClick={() => copyToClipboard(upload.urls!.jsdelivr_commit, `${upload.id}-jsdelivr`)}
+                                                    onClick={() => copyToClipboard(upload.urls!.jsdelivr, `${upload.id}-jsdelivr`)}
                                                     className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
                                                     title="Copy jsDelivr CDN URL"
                                                 >
@@ -173,7 +161,7 @@ export default function UploadHistoryComponent({ onNewUpload }: UploadHistoryPro
                                                     )}
                                                 </button>
                                                 <a
-                                                    href={upload.urls.jsdelivr_commit}
+                                                    href={upload.urls.jsdelivr}
                                                     target="_blank"
                                                     rel="noopener noreferrer"
                                                     className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
