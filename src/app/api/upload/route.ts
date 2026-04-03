@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { redisQueue } from "@/lib/redis-queue";
+import { verifyFileAccessible } from "@/lib/file-verification";
 import crypto from "crypto";
 import { Octokit } from "@octokit/rest";
 import { validateImage } from "@/lib/image-validation";
@@ -175,7 +176,20 @@ export async function POST(request: NextRequest) {
     }
 
     // Fallback (direct upload when queue not available): Perform direct upload
+    logger.info(`[Upload API] Redis queue not available for file ${filename}, using direct upload`);
     const result = await directUpload(filename, base64Content, file.name);
+
+    // Verify file is accessible before returning URL
+    // For direct upload (no Redis), do quick verification (fewer retries) to avoid blocking user
+    logger.info(`[Upload API] Verifying direct uploaded file ${filename} is accessible`);
+    const isAccessible = await verifyFileAccessible(result.urls.raw_commit, 7, 300); // Quick verification: 7 attempts, 300ms initial
+    
+    if (!isAccessible) {
+      logger.warn(`[Upload API] File ${filename} uploaded but not immediately accessible, returning anyway`);
+      // Still return the result - user can retry if needed
+    } else {
+      logger.info(`[Upload API] File ${filename} verified accessible, returning URLs`);
+    }
 
     return NextResponse.json({
       ...result,
@@ -183,7 +197,7 @@ export async function POST(request: NextRequest) {
       type: file.type,
       mode: "direct",
       note: "Uploaded directly (Bypassed batching)",
-      url: result.urls.jsdelivr_commit,
+      url: result.urls.raw_commit,
     });
   } catch (error) {
     logger.error("Upload error:", error);

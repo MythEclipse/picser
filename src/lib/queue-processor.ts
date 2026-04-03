@@ -1,4 +1,5 @@
 import { redisQueue, QueueItem, ItemStatus } from "@/lib/redis-queue";
+import { verifyFileAccessible } from "@/lib/file-verification";
 import { Octokit } from "@octokit/rest";
 import { getAutoSubmitThreshold } from "@/lib/config";
 import { isServerlessEnvironment } from "@/lib/environment";
@@ -248,6 +249,16 @@ export async function processQueue(): Promise<QueueProcessResult> {
           const itemCommitSha = await directUploadSingleToGithub(octokit, owner, repo, branch, item);
           anythingSucceeded = true;
 
+          // Verify file is accessible before marking as success
+          const isAccessible = await verifyFileAccessible(
+            `https://raw.githubusercontent.com/${owner}/${repo}/${itemCommitSha}/${item.filename}`,
+            10
+          ).catch(() => false);
+
+          if (!isAccessible) {
+            logger.warn(`[process-queue] Fallback item ${item.filename} not accessible after verification`);
+          }
+
           const urls = {
             github: `https://github.com/${owner}/${repo}/blob/${branch}/${item.filename}`,
             raw: `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${item.filename}`,
@@ -261,7 +272,7 @@ export async function processQueue(): Promise<QueueProcessResult> {
             status: "success",
             filename: item.filename,
             urls,
-            url: urls.jsdelivr_commit,
+            url: urls.raw_commit,
             commit_sha: itemCommitSha,
             timestamp: Date.now(),
           };
@@ -308,7 +319,24 @@ export async function processQueue(): Promise<QueueProcessResult> {
     await redisQueue.removeProcessedItems(items.length);
 
     // Update individual item statuses to 'success'
-    for (const item of itemsToCommit) {
+    // Verify files in parallel for faster processing
+    const verificationPromises = itemsToCommit.map(item =>
+      verifyFileAccessible(
+        `https://raw.githubusercontent.com/${owner}/${repo}/${finalCommitSha}/${item.filename}`,
+        10  // Less attempts for batch verification (faster)
+      ).catch(() => false)
+    );
+    
+    const verificationResults = await Promise.all(verificationPromises);
+
+    for (let i = 0; i < itemsToCommit.length; i++) {
+      const item = itemsToCommit[i];
+      const isAccessible = verificationResults[i];
+      
+      if (!isAccessible) {
+        logger.warn(`[process-queue] Batch item ${item.filename} not accessible after verification`);
+      }
+
       const urls = {
         github: `https://github.com/${owner}/${repo}/blob/${branch}/${item.filename}`,
         raw: `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${item.filename}`,
@@ -322,7 +350,7 @@ export async function processQueue(): Promise<QueueProcessResult> {
         status: "success",
         filename: item.filename,
         urls,
-        url: urls.jsdelivr_commit,
+        url: urls.raw_commit,
         commit_sha: finalCommitSha,
         timestamp: Date.now(),
       };

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Octokit } from "@octokit/rest";
 import { validateImage } from "@/lib/image-validation";
+import { verifyFileAccessible } from "@/lib/file-verification";
 import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
@@ -122,6 +123,18 @@ export async function POST(request: NextRequest) {
       raw_commit: `https://raw.githubusercontent.com/${githubOwner}/${githubRepo}/${commitSha}/${filename}`,
       jsdelivr_commit: `https://cdn.jsdelivr.net/gh/${githubOwner}/${githubRepo}@${commitSha}/${filename}`,
     };
+
+    // Verify file is accessible before returning URL
+    // For public upload, do quick verification (fewer retries) to avoid blocking user
+    logger.info(`[Public Upload API] Verifying uploaded file ${filename} is accessible`);
+    const isAccessible = await verifyFileAccessible(urls.raw_commit, 7, 300); // Quick verification: 7 attempts, 300ms initial
+    
+    if (!isAccessible) {
+      logger.warn(`[Public Upload API] File ${filename} uploaded but not immediately accessible, returning anyway`);
+      // Still return the result - user can retry if needed
+    } else {
+      logger.info(`[Public Upload API] File ${filename} verified accessible, returning URLs`);
+    }
 
     return NextResponse.json({
       success: true,

@@ -91,7 +91,7 @@ export default function ImageUploader({ onUpload }: ImageUploaderProps = {}) {
 
                         saveToHistory({
                             filename: statusResult.filename || file.name,
-                            url: statusResult.urls?.jsdelivr_commit || statusResult.url || '',
+                            url: statusResult.urls?.raw_commit || statusResult.urls?.jsdelivr_commit || statusResult.url || '',
                             github_url: statusResult.urls?.github_commit || statusResult.github_url,
                             size: file.size,
                             type: file.type,
