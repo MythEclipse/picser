@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyFileAccessible } from "@/lib/file-verification";
-import crypto from "crypto";
 import { Octokit } from "@octokit/rest";
 import { validateImage } from "@/lib/image-validation";
 import { logger } from "@/lib/logger";
+import { buildDeterministicUploadFilename } from "@/lib/upload-filename";
 
 export const runtime = "nodejs";
 
@@ -11,18 +11,14 @@ export const runtime = "nodejs";
  * Direct upload to GitHub (used when queueing is disabled)
  */
 async function directUpload(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  branch: string,
   filename: string,
   base64Content: string,
   originalName: string,
 ) {
-  const octokit = new Octokit({
-    auth: process.env.GITHUB_TOKEN,
-  });
-
-  const owner = process.env.GITHUB_OWNER!;
-  const repo = process.env.GITHUB_REPO!;
-  const branch = process.env.GITHUB_BRANCH || "main";
-
   let retries = 0;
   const maxRetries = 10;
   type OctokitResponse = Awaited<ReturnType<typeof octokit.repos.createOrUpdateFileContents>>;
@@ -116,16 +112,56 @@ export async function POST(request: NextRequest) {
 
     const base64Content = buffer.toString("base64");
 
-    // Generate unique filename based on SHA-256 hash + random suffix to avoid collisions
-    const hashSum = crypto.createHash("sha256");
-    hashSum.update(buffer);
-    const hash = hashSum.digest("hex").slice(0, 16); // Use first 16 chars for shortness
-    const extension = file.name.split(".").pop() || "jpg";
-    const suffix = crypto.randomUUID().slice(0, 8);
-    const filename = `uploads/${hash}-${suffix}.${extension}`;
+    const octokit = new Octokit({
+      auth: process.env.GITHUB_TOKEN,
+    });
+
+    const owner = process.env.GITHUB_OWNER!;
+    const repo = process.env.GITHUB_REPO!;
+    const branch = process.env.GITHUB_BRANCH || "main";
+    const { filename, contentHash } = buildDeterministicUploadFilename(buffer, file.name);
+
+    try {
+      const { data: existingFile } = await octokit.repos.getContent({
+        owner,
+        repo,
+        path: filename,
+        ref: branch,
+      });
+
+      if (!Array.isArray(existingFile) && "sha" in existingFile) {
+        const urls = {
+          github: `https://github.com/${owner}/${repo}/blob/${branch}/${filename}`,
+          raw: `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filename}`,
+          jsdelivr: `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${branch}/${filename}`,
+          github_commit: `https://github.com/${owner}/${repo}/blob/${existingFile.sha}/${filename}`,
+          raw_commit: `https://raw.githubusercontent.com/${owner}/${repo}/${existingFile.sha}/${filename}`,
+          jsdelivr_commit: `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${existingFile.sha}/${filename}`,
+        };
+
+        logger.info(`[Upload API] Deduplicated upload for ${filename} (hash=${contentHash})`);
+
+        return NextResponse.json({
+          success: true,
+          filename,
+          content_hash: contentHash,
+          urls,
+          github_url: `https://github.com/${owner}/${repo}/blob/${branch}/${filename}`,
+          url: urls.jsdelivr,
+          mode: "direct",
+          note: "Duplicate content detected; existing file reused",
+          deduplicated: true,
+        }, { status: 200 });
+      }
+    } catch (error) {
+      const octokitError = error as { status?: number };
+      if (octokitError.status !== 404) {
+        throw error;
+      }
+    }
 
     logger.info(`[Upload API] Using direct upload for file ${filename}`);
-    const result = await directUpload(filename, base64Content, file.name);
+    const result = await directUpload(octokit, owner, repo, branch, filename, base64Content, file.name);
 
     // Verify file is accessible before returning URL
     logger.info(`[Upload API] Verifying direct uploaded file ${filename} is accessible`);
@@ -145,6 +181,7 @@ export async function POST(request: NextRequest) {
       note: "Uploaded directly to GitHub",
       url: result.urls.jsdelivr,
       github_url: result.urls.github,
+      content_hash: contentHash,
     }, { status: 200 });
   } catch (error) {
     logger.error("Upload error:", error);

@@ -3,6 +3,7 @@ import { Octokit } from "@octokit/rest";
 import { validateImage } from "@/lib/image-validation";
 import { verifyFileAccessible } from "@/lib/file-verification";
 import { logger } from "@/lib/logger";
+import { buildDeterministicUploadFilename } from "@/lib/upload-filename";
 
 export const runtime = "nodejs";
 
@@ -70,11 +71,55 @@ export async function POST(request: NextRequest) {
 
     const base64Content = buffer.toString("base64");
 
-    // Generate unique filename
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const extension = file.name.split(".").pop() || "jpg";
     const cleanFolder = folder.replace(/^\/+|\/+$/g, ""); // Remove leading/trailing slashes
-    const filename = `${cleanFolder}/${timestamp}-${Math.random().toString(36).substr(2, 9)}.${extension}`;
+    const { filename, contentHash } = buildDeterministicUploadFilename(buffer, file.name, cleanFolder);
+
+    try {
+      const { data: existingFile } = await octokit.repos.getContent({
+        owner: githubOwner,
+        repo: githubRepo,
+        path: filename,
+        ref: githubBranch,
+      });
+
+      if (!Array.isArray(existingFile) && "sha" in existingFile) {
+        const urls = {
+          github: `https://github.com/${githubOwner}/${githubRepo}/blob/${githubBranch}/${filename}`,
+          raw: `https://raw.githubusercontent.com/${githubOwner}/${githubRepo}/${githubBranch}/${filename}`,
+          jsdelivr: `https://cdn.jsdelivr.net/gh/${githubOwner}/${githubRepo}@${githubBranch}/${filename}`,
+          github_commit: `https://github.com/${githubOwner}/${githubRepo}/blob/${existingFile.sha}/${filename}`,
+          raw_commit: `https://raw.githubusercontent.com/${githubOwner}/${githubRepo}/${existingFile.sha}/${filename}`,
+          jsdelivr_commit: `https://cdn.jsdelivr.net/gh/${githubOwner}/${githubRepo}@${existingFile.sha}/${filename}`,
+        };
+
+        logger.info(`[Public Upload API] Deduplicated upload for ${filename} (hash=${contentHash})`);
+
+        return NextResponse.json({
+          success: true,
+          message: "Image already existed and was reused",
+          data: {
+            filename,
+            content_hash: contentHash,
+            size: file.size,
+            type: file.type,
+            github_url: urls.github,
+            urls,
+            repository: {
+              owner: githubOwner,
+              repo: githubRepo,
+              branch: githubBranch,
+              folder: cleanFolder,
+            },
+            deduplicated: true,
+          },
+        });
+      }
+    } catch (error) {
+      const octokitError = error as { status?: number };
+      if (octokitError.status !== 404) {
+        throw error;
+      }
+    }
 
     // Upload to GitHub with retry logic for 409 conflicts
     let response;
@@ -141,6 +186,7 @@ export async function POST(request: NextRequest) {
       message: "Image uploaded successfully",
       data: {
         filename: filename,
+        content_hash: contentHash,
         size: file.size,
         type: file.type,
         commit_sha: commitSha,
