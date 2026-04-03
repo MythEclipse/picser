@@ -182,7 +182,7 @@ export async function POST(request: NextRequest) {
     // Verify file is accessible before returning URL
     // For direct upload (no Redis), do quick verification (fewer retries) to avoid blocking user
     logger.info(`[Upload API] Verifying direct uploaded file ${filename} is accessible`);
-    const isAccessible = await verifyFileAccessible(result.urls.raw_commit, 7, 300); // Quick verification: 7 attempts, 300ms initial
+    const isAccessible = await verifyFileAccessible(result.urls.jsdelivr, 7, 300); // Quick verification: 7 attempts, 300ms initial
     
     if (!isAccessible) {
       logger.warn(`[Upload API] File ${filename} uploaded but not immediately accessible, returning anyway`);
@@ -197,7 +197,7 @@ export async function POST(request: NextRequest) {
       type: file.type,
       mode: "direct",
       note: "Uploaded directly (Bypassed batching)",
-      url: result.urls.raw_commit,
+      url: result.urls.jsdelivr,
     });
   } catch (error) {
     logger.error("Upload error:", error);

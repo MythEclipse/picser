@@ -251,7 +251,7 @@ export async function processQueue(): Promise<QueueProcessResult> {
 
           // Verify file is accessible before marking as success
           const isAccessible = await verifyFileAccessible(
-            `https://raw.githubusercontent.com/${owner}/${repo}/${itemCommitSha}/${item.filename}`,
+            `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${item.filename}`,
             10
           ).catch(() => false);
 
@@ -272,7 +272,7 @@ export async function processQueue(): Promise<QueueProcessResult> {
             status: "success",
             filename: item.filename,
             urls,
-            url: urls.raw_commit,
+            url: urls.jsdelivr,
             commit_sha: itemCommitSha,
             timestamp: Date.now(),
           };
@@ -322,7 +322,7 @@ export async function processQueue(): Promise<QueueProcessResult> {
     // Verify files in parallel for faster processing
     const verificationPromises = itemsToCommit.map(item =>
       verifyFileAccessible(
-        `https://raw.githubusercontent.com/${owner}/${repo}/${finalCommitSha}/${item.filename}`,
+        `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${item.filename}`,
         10  // Less attempts for batch verification (faster)
       ).catch(() => false)
     );
@@ -350,7 +350,7 @@ export async function processQueue(): Promise<QueueProcessResult> {
         status: "success",
         filename: item.filename,
         urls,
-        url: urls.raw_commit,
+        url: urls.jsdelivr,
         commit_sha: finalCommitSha,
         timestamp: Date.now(),
       };

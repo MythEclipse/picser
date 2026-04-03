@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
           status: "success",
           filename,
           urls,
-          url: urls.jsdelivr_commit,
+          url: urls.jsdelivr,
           commit_sha: commitSha,
           timestamp: Date.now(),
         };

@@ -127,7 +127,7 @@ export async function POST(request: NextRequest) {
     // Verify file is accessible before returning URL
     // For public upload, do quick verification (fewer retries) to avoid blocking user
     logger.info(`[Public Upload API] Verifying uploaded file ${filename} is accessible`);
-    const isAccessible = await verifyFileAccessible(urls.raw_commit, 7, 300); // Quick verification: 7 attempts, 300ms initial
+    const isAccessible = await verifyFileAccessible(urls.jsdelivr, 7, 300); // Quick verification: 7 attempts, 300ms initial
     
     if (!isAccessible) {
       logger.warn(`[Public Upload API] File ${filename} uploaded but not immediately accessible, returning anyway`);
