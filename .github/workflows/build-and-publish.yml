@@ -29,7 +29,7 @@ jobs:
 
       - name: Build application with Nix shell
         run: |
-          nix shell nixpkgs#nodejs-20_x nixpkgs#bun --command "bun install && bun run build"
+          nix shell nixpkgs#nodejs-24_x nixpkgs#bun --command "bun install && bun run build"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v4
