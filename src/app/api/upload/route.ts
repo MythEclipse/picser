@@ -7,6 +7,14 @@ import { buildDeterministicUploadFilename } from "@/lib/upload-filename";
 
 export const runtime = "nodejs";
 
+function getRequiredEnv(name: string) {
+  const value = process.env[name];
+  if (!value) {
+    logger.error(`[Upload API] Missing required environment variable: ${name}`);
+  }
+  return value;
+}
+
 /**
  * Direct upload to GitHub (used when queueing is disabled)
  */
@@ -112,13 +120,25 @@ export async function POST(request: NextRequest) {
 
     const base64Content = buffer.toString("base64");
 
+    const githubToken = getRequiredEnv("GITHUB_TOKEN");
+    const owner = getRequiredEnv("GITHUB_OWNER");
+    const repo = getRequiredEnv("GITHUB_REPO");
+    const branch = process.env.GITHUB_BRANCH || "main";
+
+    if (!githubToken || !owner || !repo) {
+      return NextResponse.json(
+        {
+          error: "Missing required GitHub environment configuration: GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO",
+          note: "Set these variables in Docker / container environment before running the upload API",
+        },
+        { status: 500 },
+      );
+    }
+
     const octokit = new Octokit({
-      auth: process.env.GITHUB_TOKEN,
+      auth: githubToken,
     });
 
-    const owner = process.env.GITHUB_OWNER!;
-    const repo = process.env.GITHUB_REPO!;
-    const branch = process.env.GITHUB_BRANCH || "main";
     const { filename, contentHash } = buildDeterministicUploadFilename(buffer, file.name);
 
     try {
@@ -232,13 +252,24 @@ export async function DELETE(request: NextRequest) {
       }
     }
 
-    const octokit = new Octokit({
-      auth: process.env.GITHUB_TOKEN,
-    });
-
-    const owner = process.env.GITHUB_OWNER!;
-    const repo = process.env.GITHUB_REPO!;
+    const githubToken = getRequiredEnv("GITHUB_TOKEN");
+    const owner = getRequiredEnv("GITHUB_OWNER");
+    const repo = getRequiredEnv("GITHUB_REPO");
     const branch = process.env.GITHUB_BRANCH || "main";
+
+    if (!githubToken || !owner || !repo) {
+      return NextResponse.json(
+        {
+          error: "Missing required GitHub environment configuration: GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO",
+          note: "Set these variables in Docker / container environment before running the delete API",
+        },
+        { status: 500 },
+      );
+    }
+
+    const octokit = new Octokit({
+      auth: githubToken,
+    });
 
     // 1. Get the file's current SHA (Required by GitHub API for deletion)
     let sha: string;
