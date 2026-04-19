@@ -11,17 +11,22 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN bun run build
 
-# Production runtime image using Distroless Node 24
-FROM gcr.io/distroless/nodejs:24 AS runner
+# Production runtime image using Node 24 Slim
+FROM node:24-slim AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
+RUN addgroup -S -g 1001 nodejs || true
+RUN adduser -S -u 1001 nextjs || true
+
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/node_modules ./node_modules
+
+USER nextjs
 
 EXPOSE 3000
 
