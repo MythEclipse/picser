@@ -67,7 +67,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git add infra/compose/picser.yml
           if ! git diff --cached --quiet; then
-            git commit -m "chore: update picser image SHA to ${GITHUB_SHA} [skip ci]"
+            git commit -m "chore: update picser image SHA to ${GITHUB_SHA}"
             git push origin main
           else
             echo "No compose update needed."
