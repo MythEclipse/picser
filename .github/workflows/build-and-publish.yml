@@ -22,7 +22,7 @@ jobs:
           fetch-depth: 1
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@v4
+        uses: oven-sh/setup-bun@main
 
       - name: Install dependencies with Bun
         run: |
