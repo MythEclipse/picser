@@ -21,16 +21,15 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@main
+      - name: Install Nix
+        uses: cachix/install-nix-action@v26
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
 
-      - name: Install dependencies with Bun
+      - name: Build application with Nix shell
         run: |
-          bun install
-
-      - name: Build application
-        run: |
-          bun run build
+          nix shell nixpkgs#nodejs-20_x nixpkgs#bun --command "bun install && bun run build"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v4

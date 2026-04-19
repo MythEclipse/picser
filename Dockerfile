@@ -1,26 +1,18 @@
-# Base Bun image for deps
-FROM oven/bun:latest AS base
+# Build stage using Bun
+FROM oven/bun:latest AS builder
 WORKDIR /app
 
-# Install dependencies only when needed
-FROM base AS deps
-WORKDIR /app
-COPY package.json .
+COPY package.json bun.lock .
 RUN bun install
 
-# Rebuild the source code only when needed
-FROM base AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # Next.js compiles telemetry data collection by default.
 ENV NEXT_TELEMETRY_DISABLED 1
-
 RUN bun run build
 
-# Production image, copy all the files and run next
-FROM oven/bun:latest AS runner
+# Production runtime image using Node Alpine
+FROM node:20-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV production
@@ -30,14 +22,9 @@ RUN addgroup -S -g 1001 nodejs || true
 RUN adduser -S -u 1001 nextjs || true
 
 COPY --from=builder /app/public ./public
-
-# Set the correct permission for prerender cache
-RUN mkdir .next
-RUN chown nextjs:nodejs .next || true
-
-# Automatically leverage output traces to reduce image size
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/node_modules ./node_modules
 
 USER nextjs
 
