@@ -18,8 +18,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN addgroup -S -g 1001 nodejs || true
-RUN adduser -S -u 1001 nextjs || true
+RUN groupadd -r nodejs || true
+RUN useradd -r -u 1001 -g nodejs -s /usr/sbin/nologin nextjs || true
 
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
