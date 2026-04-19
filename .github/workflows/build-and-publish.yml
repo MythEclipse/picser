@@ -46,5 +46,5 @@ jobs:
           file: Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository | toLower() }}:${{ github.sha }}
-            ghcr.io/${{ github.repository | toLower() }}:latest
+            ghcr.io/mytheclipse/picser:${{ github.sha }}
+            ghcr.io/mytheclipse/picser:latest
