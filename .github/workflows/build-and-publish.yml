@@ -46,5 +46,29 @@ jobs:
           file: Dockerfile
           push: true
           tags: |
-            ghcr.io/mytheclipse/picser:${{ github.sha }}
+            ghcr.io/mytheclipse/picser:sha-${{ github.sha }}
             ghcr.io/mytheclipse/picser:latest
+
+      - name: Checkout deployment repository
+        uses: actions/checkout@v4
+        with:
+          repository: MythEclipse/ultimate-asepharyana.tech
+          token: ${{ secrets.UPDATE_REPO_TOKEN }}
+          path: deploy-repo
+          fetch-depth: 1
+
+      - name: Update picser compose SHA
+        run: |
+          SHORT_SHA=${GITHUB_SHA:0:7}
+          IMAGE_TAG=ghcr.io/mytheclipse/picser:sha-${GITHUB_SHA}
+          cd deploy-repo
+          sed -i "s|^\(\s*image:\s*ghcr.io/mytheclipse/picser:\).*|\1sha-${GITHUB_SHA}|" infra/compose/picser.yml
+          git config user.email "action@github.com"
+          git config user.name "github-actions[bot]"
+          git add infra/compose/picser.yml
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update picser image SHA to ${GITHUB_SHA} [skip ci]"
+            git push origin main
+          else
+            echo "No compose update needed."
+          fi
