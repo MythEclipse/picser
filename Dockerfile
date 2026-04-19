@@ -1,15 +1,12 @@
-# Base stage for deps
-FROM node:20-alpine AS base
+# Base Bun image for deps
+FROM oven/bun:latest AS base
 WORKDIR /app
-
-# Enable Corepack to manage pnpm
-RUN corepack enable
 
 # Install dependencies only when needed
 FROM base AS deps
 WORKDIR /app
-COPY package.json pnpm-lock.yaml* ./
-RUN pnpm install --frozen-lockfile || pnpm install
+COPY package.json .
+RUN bun install
 
 # Rebuild the source code only when needed
 FROM base AS builder
@@ -20,10 +17,10 @@ COPY . .
 # Next.js compiles telemetry data collection by default.
 ENV NEXT_TELEMETRY_DISABLED 1
 
-RUN pnpm run build
+RUN bun run build
 
 # Production image, copy all the files and run next
-FROM node:20-alpine AS runner
+FROM oven/bun:latest AS runner
 WORKDIR /app
 
 ENV NODE_ENV production

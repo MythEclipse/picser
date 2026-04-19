@@ -21,15 +21,16 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Install Nix
-        uses: cachix/install-nix-action@v26
-        with:
-          extra_nix_config: |
-            experimental-features = nix-command flakes
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v4
 
-      - name: Build app with Nix shell
+      - name: Install dependencies with Bun
         run: |
-          nix shell nixpkgs#nodejs-20_x nixpkgs#pnpm --run "pnpm install --frozen-lockfile && pnpm build"
+          bun install
+
+      - name: Build application
+        run: |
+          bun run build
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v4
